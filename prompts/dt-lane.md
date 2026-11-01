@@ -1,6 +1,6 @@
 ---
 description: Run one ticket in this lane (clone or worktree) - pick, branch, BDD red, TDD green, verify, handoff, PR
-argument-hint: <slug> <ticket id | next>
+argument-hint: "<slug> <ticket id | next>"
 ---
 Work one ticket of feature "$1" in this lane. Ticket: $2.
 

@@ -1,6 +1,6 @@
 ---
 description: T0/T1 build loop in the current checkout - scenarios, TDD, verify, PR (no spec)
-argument-hint: <type: web|device|service> <what to build, or "as aligned">
+argument-hint: "<type: web|device|service> <what to build, or 'as aligned'>"
 ---
 Build this as a T0/T1 task. Type: $1. Task: ${@:2}
 

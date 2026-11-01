@@ -1,6 +1,6 @@
 ---
 description: Start here - grill in rounds, settle scale/ownership/reversibility/verification/non-goals, end with the tier (Gate 0)
-argument-hint: <what you want to build or change>
+argument-hint: "<what you want to build or change>"
 ---
 Grill me on: $@
 

@@ -1,6 +1,6 @@
 ---
 description: T2 - spec with module map, contracts as code, module diagram and self-critique (stops at Gate 1)
-argument-hint: <slug> <type: web|device|service|mixed>
+argument-hint: "<slug> <type: web|device|service|mixed>"
 ---
 Write the spec for feature "$1" (type: $2) from our grill session and the codebase.
 
