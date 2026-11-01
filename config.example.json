@@ -1,0 +1,16 @@
+{
+  "repos": {
+    "csscompany-enterprise/monorepo": {
+      "modality": "monorepo",
+      "lanes": [
+        "/Users/stanislas.duprey/code/monorepo",
+        "/Users/stanislas.duprey/code/monorepo-2"
+      ],
+      "checks": ""
+    }
+  },
+  "defaults": {
+    "modality": "standalone",
+    "checks": ""
+  }
+}
