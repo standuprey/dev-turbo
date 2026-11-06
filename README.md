@@ -26,10 +26,11 @@ Start with `/dt-grill <task>`. It saves a Scope proposal. `/dt-approve scope` co
 | `/dt-approve architecture` | Approve the design. |
 | `/dt-slice` | Propose a new plan, or show only affected-ticket changes when a plan already exists. |
 | `/dt-approve slices` | Approve the slice plan. |
-| `/dt-lane 00` | Build the walking skeleton first. |
+| `/dt-lane` | Open the ticket picker. On a new plan, choose 00 to build the walking skeleton first. |
 | `/dt-review 00` | Review before merge; discuss and fix findings. |
 | `/dt-approve 00` | Check all saved PRs are merged on GitHub, then close the ticket internally. |
-| `/dt-lane` | Pick a ticket from a ready/locked/blocked list, then build it; at most two in flight. |
+| `/dt-lane` | Choose the next ready ticket in the picker; at most two tickets in flight. |
+| `/dt-lane <id>` | Skip the picker and start/resume that ticket, subject to the same safety checks. |
 | `/dt-lane <id> force` | Take over a ticket claim in its saved checkout after checking the previous agent is gone. |
 | `/dt-review <id>` → merge → `/dt-approve <id>` | Repeat pre-merge review, human merge and internal closure for each ticket. |
 | `/dt-drift` | Review architecture drift every 2–3 merges and at the end. |
@@ -78,15 +79,30 @@ After ticket 00 is accepted, repeat this loop. **Repeat for each ready ticket**,
 
 If drift happens while 00 is merged but unaccepted, use `/dt-approve 00` to check live merge states and close it before starting other tickets. Approval never merges a PR or starts the next loop automatically.
 
-### Lane ownership
+### Ticket picker and lane ownership
 
-Resume/status recommend `/dt-lane` when ready work fits alongside existing tickets. It opens a read-only picker, with ready/resumable tickets first and locked/blocked/review tickets labelled. Canceling changes nothing. Selecting a locked ticket explains its owner/lane and does not force a takeover. `/dt-lane <id>` skips the picker; `/dt-lane <id> force` remains explicit. The old `/dt-lane next` spelling is an alias for the picker, not an automatic choice. In non-interactive mode, supply an explicit ticket ID. An in-progress ticket in another lane is saved context, not a command to join that agent's work. If no work can start, use status or review/close the tickets already in flight.
+Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when ready work fits alongside existing tickets. The picker reads saved local state; it does not refresh GitHub or change progress. Available tickets appear first, and accepted tickets are omitted.
 
-`/dt-lane` claims its ticket in `progress.json` before Git operations, under the same atomic lock used to pick it. The claim stores the Pi session owner, checkout and acquisition time. Another session cannot resume that claim or save ticket progress/PRs with the old owner. Existing lane assignments are respected even for tickets started before claims were added.
+| Picker label | Meaning / action |
+|---|---|
+| **READY** | Available to start in this checkout. Select it to build. |
+| **RESUME** | In-progress work available to resume here. Select it to continue. |
+| **LOCKED** | Owned by another session or assigned to another checkout. The row shows its owner/lane. Selecting it explains the lock; it does not start work or take over. |
+| **BLOCKED** | Cannot start yet. The row shows the dependency, approval, saved blocker or resource limit. |
+| **REVIEW** | Use `/dt-review <id>`. |
+| **MERGED** | Use `/dt-approve <id>` to check live merge states and record closure. |
 
-Use `/dt-lane <id> force` only in the saved checkout, after checking the previous agent is gone. Force does not stop an old agent or cancel commands already running. It never bypasses a dirty-tree, dependency, module-conflict or two-ticket limit. Claims do not expire on a timer. A final progress save with `--release-claim`, or normal session shutdown, releases only that session's claims. A crash can leave a claim that needs explicit force. Release preserves the ticket's in-progress/review state; it is not completion and does not make the ticket selectable by `next`.
+**Canceling changes nothing.** After selection, the agent rechecks safety and claims the ticket atomically before Git operations. If another agent claimed it while the picker was open, starting work is refused.
 
-The session context supplies `--owner <session-ID>` for `next`, ticket progress updates and `pr`. CLI users must supply their own stable owner ID. Direct source edits outside this workflow are not locked. Reload the extensions in existing sessions when idle to enable claim handling; do not interrupt an agent mid-command.
+- `/dt-lane <id>` skips the picker, not the safety checks. Non-interactive sessions must supply an ID.
+- `/dt-lane <id> force` explicitly takes over a claim **in its saved checkout**, after you check the previous agent is gone. It does not stop that agent or cancel running commands. Dirty-tree, dependency, module-conflict and two-ticket limits still apply.
+- `/dt-lane next` is a legacy alias for the picker, not an automatic choice. Prefer `/dt-lane`.
+
+Claims in `progress.json` record the Pi session owner, checkout and acquisition time. Another session cannot resume a claim or save ticket progress/PRs with the old owner. Existing lane assignments are respected even for work started before claims were added. In-progress work in another lane is context, not an invitation to join that agent.
+
+Claims do not expire on a timer. A final save with `--release-claim`, or normal session shutdown, releases only that session's claims. A crash may leave a claim that needs explicit force. Release preserves the ticket's in-progress/review state; it is not completion or a new ready ticket.
+
+The session context supplies `--owner <session-ID>` for `dt.mjs next`, ticket progress updates and `pr`. CLI users must supply their own stable owner ID. Direct source edits outside this workflow are not locked. Reload existing sessions when idle to enable claim handling; do not interrupt an agent mid-command.
 
 ### Named approvals
 
@@ -108,7 +124,7 @@ When tickets already exist, `/dt-slice` shows a change-review card: current spec
 
 - `/dt-status`: read-only completion, remaining tickets and blockers; **the next dt-command(s) are shown last**. No model call or remote refresh.
 - `/dt-amend <description>`: mini alignment for a change to the selected T2 project; hands off to `/dt-spec` or `/dt-slice`.
-- `/dt-help`: this guide, without a model call.
+- `/dt-help`: this command flow, picker labels and ownership rules, without a model call.
 - `/dt-resume [slug]`: select/switch projects; remote refresh failures keep the local selection. It shows next commands in the transcript, without an action picker or editor changes.
 
 Selection survives reloads, reopening and forks of the Pi session. A brand-new session needs resume or a new grill. Starting a new grill clears the old selection. The underlying `dt.mjs` CLI keeps numeric IDs and explicit slugs; those are implementation details, not the user approval flow. See [workflow.md](workflow.md) for the detailed map.
@@ -160,8 +176,8 @@ Keep PRs short: a few plain change bullets under `## Description`, then `## Test
 - `/dt-help` displays the workflow guide directly, without a model call, repository lookup or state changes.
 - `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` suggests that project's ticket IDs; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-approve ` suggests ticket IDs for internal closure; `/dt-spec ` suggests task types. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
 - New session: open pi in the repository (or a lane) and run `/dt-resume`. Pick a feature; it posts a short brief (phase, gates, board, in-flight tickets with PRs, verification, todo, next step) and lists next commands without a follow-up picker.
-- Monorepo: open pi in clone 1 or clone 2 and run `/dt-lane`. Feature docs live in `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones; a small local git repo commits every saved state.
-- Standalone: run `/dt-lane` from the main checkout; it creates `../<repo>.lane-<id>` and tells you to open pi there. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).
+- Monorepo: open pi in clone 1 or clone 2 and run `/dt-lane`, then choose a ready ticket. Locked rows identify work in another session/checkout. Feature docs live in `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones; a small local git repo commits every saved state.
+- Standalone: run `/dt-lane` from the main checkout and choose a ready ticket. After selection, it creates `../<repo>.lane-<id>` and tells you to open pi there; run `/dt-lane <id>` there to resume. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).
 - `/dt-status` displays a saved-state board directly: completed tickets and verification, tickets/slices left, in-flight work, blockers, gates and next steps. It does not call the model, start work, refresh remote facts or write project state. It requires a selected project; it never guesses from a branch or the only feature. Use `/dt-resume` to select or switch projects.
 - `dt.mjs status <slug>` any time for the full board and DAG; `dt.mjs progress <slug> [--ticket ID]` for the raw saved state.
 

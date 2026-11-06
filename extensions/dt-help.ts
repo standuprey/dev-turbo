@@ -1,4 +1,4 @@
-/** /dt-help displays the README's workflow guide; no model or workflow actions. */
+/** /dt-help displays the README's command flow, ticket picker and ownership rules; no model or workflow actions. */
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ export default function (pi: ExtensionAPI) {
 		return box;
 	});
 	pi.registerCommand("dt-help", {
-		description: "Show the dev-turbo command flow and gate approvals (no model call)",
+		description: "Show the command flow, ticket picker, ownership rules and approvals (no model call)",
 		handler: async (args, ctx) => {
 			if (args.trim()) {
 				ctx.ui.notify("Usage: /dt-help", "info");
