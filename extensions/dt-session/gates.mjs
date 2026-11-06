@@ -17,12 +17,11 @@ export function quickGate(branch, project, gate) {
 export function ticketMerged(ticket) {
 	return Boolean(ticket?.prs?.length) && ticket.prs.every((pr) => pr.state === "merged");
 }
-function mergedNext(id, ticket) {
-	return ticketPending(ticket) && ticket.verification && !ticket.blockers?.length
-		? `/dt-approve ticket ${id}` : `/dt-final-check ${id}`;
+function mergedNext(id) {
+	return `/dt-approve ${id}`;
 }
 export function ticketPending(ticket) {
-	return ticket?.acceptance?.state === "pending" || (!ticket?.acceptance && ticket?.status === "review" && /(?:Gate\s*3|G3)\s*:\s*(?:merge decision|waiting)|^\s*(?:Gate\s*3|G3)\s+merge decision\b/i.test(ticket.next || ""));
+	return ticket?.status !== "done" && (ticket?.acceptance?.state === "pending" || (!ticket?.acceptance && ticket?.status === "review" && /(?:Gate\s*3|G3)\s*:\s*(?:merge decision|waiting)|^\s*(?:Gate\s*3|G3)\s+merge decision\b/i.test(ticket.next || "")));
 }
 export function findings(snapshot) {
 	const found = snapshot.prog.todo.map((s) => s.match(/^drift\s+(\d+):/i)?.[1]).filter(Boolean).map(Number);
@@ -57,13 +56,13 @@ export function pendingGates(view) {
 	if (g.G1?.state === "approved" && g.G2?.state === "pending" && !(g.G4?.state === "approved" && view.snapshot.prog.todo.some((n) => /^drift\s+\d+:/i.test(n)))) out.push("slices");
 	if (g.G1?.state === "approved" && g.G2?.state === "approved") {
 		if (g.G4?.state === "pending") out.push("drift");
-		else if (view.snapshot.prog.drift.merges_since < 2 && g.G4?.state !== "changes" && !needsSliceReview(view.snapshot) && !view.snapshot.prog.todo.some((n) => /^drift\s+\d+:/i.test(n)) && view.snapshot.tickets.some((t) => ticketPending(view.snapshot.prog.tickets[t.id]))) out.push("ticket");
+		else if (view.snapshot.tickets.some((t) => ticketPending(view.snapshot.prog.tickets[t.id]) || (view.snapshot.prog.tickets[t.id]?.status !== "done" && view.snapshot.prog.tickets[t.id]?.prs?.length))) out.push("ticket");
 	}
 	return out;
 }
 export function approvalPlan(view, name, args) {
 	if (!Object.hasOwn(NAMES, name)) throw new Error("Usage: /dt-approve scope|architecture|slices|ticket|drift [ticket ID or decisions].");
-	if (!pendingGates(view).includes(name)) throw new Error(`${NAMES[name].label} is not awaiting approval. Use /dt-status to see the next command.`);
+	if (!(name === "ticket" && view.project?.tier === "T2") && !pendingGates(view).includes(name)) throw new Error(`${NAMES[name].label} is not awaiting approval. Use /dt-status to see the next command.`);
 	if (name === "scope") {
 		if (/^--?[\w-]+$/.test(view.scope.note.trim())) throw new Error("Use a descriptive task summary, not a standalone command-line flag.");
 		if (view.existingScope) throw new Error("That project already exists. Use /dt-resume to select it, or discuss a new name before Scope approval.");
@@ -78,18 +77,21 @@ export function approvalPlan(view, name, args) {
 	if (name === "ticket") {
 		if (args.length !== 1 || !/^\d{1,2}$/.test(args[0])) throw new Error("Usage: /dt-approve ticket <ID>.");
 		const id = args[0].padStart(2, "0"), saved = snapshot.prog.tickets[id];
-		if (!snapshot.tickets.some((t) => t.id === id) || !ticketPending(saved)) throw new Error(`Ticket ${id} is not awaiting acceptance. Run /dt-${ticketMerged(saved) ? "final-check" : "review"} ${id} first.`);
-		if (needsSliceReview(snapshot)) throw new Error("The spec was amended after slice approval. Run /dt-slice and /dt-approve slices before accepting tickets.");
-		if (!saved.prs?.length || !saved.prs.every((pr) => pr.state === "merged")) throw new Error("All ticket PRs must be saved as merged first. Merge them yourself, then /dt-resume to refresh saved PR state.");
-		if (saved.blockers?.length) throw new Error(`Resolve the saved blockers first: ${saved.blockers.join("; ")}. Use /dt-final-check ${id}.`);
-		if (!saved.verification) throw new Error(`No verification is saved for ticket ${id}. Use /dt-final-check ${id} to verify and save it first.`);
-		return { name, revision: view.revision, slug: view.project.slug, id: 3, ticket: id, note: "Ticket acceptance confirmed through /dt-approve" };
+		if (!snapshot.tickets.some((t) => t.id === id)) throw new Error(`Unknown ticket ${id}. Use /dt-status.`);
+		if (saved?.status === "done") throw new Error(`Ticket ${id} is already done. Use /dt-status.`);
+		if (!saved?.prs?.length) throw new Error(`No PRs are saved for ticket ${id}. Save its PRs before closing it.`);
+		return { name, revision: view.revision, slug: view.project.slug, id: 3, ticket: id, note: "Ticket closed through /dt-approve after live merge checks" };
 	}
 	if (name !== "drift" && args.length) throw new Error(`Usage: /dt-approve ${name}.`);
 	return { name, revision: view.revision, slug: view.project.slug, id: NAMES[name].id, note: name === "drift" ? driftDecisions(snapshot, args) : `${NAMES[name].label} approved through /dt-approve` };
 }
 export function approvalCompletions(view, prefix) {
 	const pending = pendingGates(view);
+	if (view.project?.tier === "T2" && /^\d{0,2}$/.test(prefix)) {
+		const ids = view.snapshot.tickets.filter((t) => view.snapshot.prog.tickets[t.id]?.status !== "done" && view.snapshot.prog.tickets[t.id]?.prs?.length && t.id.startsWith(prefix)).map((t) => ({ value: t.id, label: t.id, description: t.title }));
+		if (prefix) return ids;
+		return [...pending.filter((name) => name !== "ticket").map((name) => ({ value: name, label: name, description: NAMES[name].label })), ...ids];
+	}
 	if (!prefix.includes(" ")) return pending.filter((name) => name.startsWith(prefix)).map((name) => ({ value: name, label: name, description: NAMES[name].label }));
 	const [name, ...parts] = prefix.split(" ");
 	if (!pending.includes(name)) return [];
@@ -133,17 +135,15 @@ export function nextCommands(view, logic) {
 	if (work) {
 		const id = work[2].padStart(2, "0");
 		if (work[2] === "next" && work[1] === "lane") { try { logic.pickReady(s.tickets, s.st); return [saved]; } catch {} }
-		else if (s.st[id] && s.st[id].status !== "done") return [saved];
+		else if (work[1] === "review" && s.st[id] && s.st[id].status !== "done") return [saved];
 	}
 	const awaiting = s.tickets.filter((t) => ticketPending(s.prog.tickets[t.id]));
-	if (awaiting.length) return awaiting.map((t) => `/dt-approve ticket ${t.id}`);
-	const active = s.tickets.filter((t) => ["in_progress", "review"].includes(s.st[t.id].status));
-	if (active.length) return active.map((t) => {
-		const handover = sessionCommand(s.prog.tickets[t.id]?.next || "", view.project.slug).trim();
-		if (new RegExp(`^/dt-(?:lane ${t.id}|review ${t.id}(?: autofix)?)$`).test(handover)) return handover;
-		return `/dt-${s.st[t.id].status === "review" ? "review" : "lane"} ${t.id}`;
-	});
-	try { const ready = logic.pickReady(s.tickets, s.st); return [`/dt-lane ${ready.id}`]; } catch { /* no runnable tickets */ }
+	if (awaiting.length) return awaiting.map((t) => `/dt-approve ${t.id}`);
+	// Status is shared by lanes. Never turn another agent's build into a resume command.
+	try { logic.pickReady(s.tickets, s.st); return ["/dt-lane"]; } catch { /* no runnable tickets */ }
+	const review = s.tickets.filter((t) => s.st[t.id].status === "review");
+	if (review.length) return review.map((t) => `/dt-review ${t.id}`);
+	if (s.tickets.some((t) => s.st[t.id].status === "in_progress")) return ["/dt-status"];
 	if (s.tickets.length && s.tickets.every((t) => s.st[t.id].status === "done")) return [s.prog.drift.merges_since > 0 ? "/dt-drift" : "/dt-status"];
 	return ["/dt-slice"];
 }

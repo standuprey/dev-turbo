@@ -2,6 +2,7 @@
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -14,11 +15,13 @@ export default async function (pi: ExtensionAPI) {
 	const load = createModuleLoader(import.meta.url);
 	const { ENTRY, TYPES, restoreProject, resolveCommand, validSlug } = await load("./state.mjs");
 	const { createProjectFooter } = await load("./footer.mjs");
+	const { chooseLane } = await load("./lane-picker.mjs");
 	const { SCOPE, QUICK, scopeProposal, quickGate } = await load("./gates.mjs");
 	const dt = join(process.env.DT_DIR || join(homedir(), ".pi", "agent", "dt"), "dt.mjs");
 	let project: Project | null = null;
 	let repo: Repo | null = null;
 	let currentCtx: ExtensionContext | undefined;
+	const laneProjects = new Set<string>();
 
 	const readRepo = async (ctx: ExtensionContext): Promise<Repo> => {
 		const result = await pi.exec("node", [dt, "info", "--json"], { cwd: ctx.cwd, timeout: 5000 });
@@ -67,7 +70,7 @@ export default async function (pi: ExtensionAPI) {
 		project = restoreProject(ctx.sessionManager.getBranch(), repo);
 		updateUI(ctx);
 	});
-	pi.on("input", (event, ctx) => {
+	pi.on("input", async (event, ctx) => {
 		refreshSelection(ctx);
 		if (/^\/dt-grill(?:\s|$)/.test(event.text)) {
 			if (project) select(null, ctx);
@@ -75,11 +78,34 @@ export default async function (pi: ExtensionAPI) {
 			return { action: "continue" };
 		}
 		try {
-			const text = resolveCommand(event.text, project);
+			let text = resolveCommand(event.text, project);
+			if (project && text === `/dt-lane ${project.slug}`) {
+				if (!ctx.hasUI) {
+					ctx.ui.notify("/dt-lane needs a ticket picker. In non-interactive mode use /dt-lane <id>.", "warning");
+					return { action: "handled" };
+				}
+				const selectedProject = project;
+				const logic = await load(pathToFileURL(dt).href);
+				const id = await chooseLane({ project: selectedProject, ctx, logic, loadSnapshot: async () => {
+					const repo = logic.resolveRepo(ctx.cwd);
+					if (repo.key !== selectedProject.key || repo.featuresBase !== selectedProject.base) throw new Error("Repository changed. Run /dt-resume before choosing a ticket.");
+					return { repo, snapshot: logic.readFeatureStatus(repo, selectedProject.slug) };
+				} });
+				if (!id) return { action: "handled" };
+				text = `/dt-lane ${selectedProject.slug} ${id}`;
+			}
+			if (text?.startsWith("/dt-lane ") && project) laneProjects.add(project.slug);
 			return text ? { action: "transform", text, images: event.images } : { action: "continue" };
 		} catch (e) {
 			ctx.ui.notify(e instanceof Error ? e.message : String(e), "warning");
 			return { action: "handled" };
+		}
+	});
+	pi.on("session_shutdown", async (_event, ctx) => {
+		// Release only this session's claims. A force takeover must not be undone.
+		for (const slug of laneProjects) {
+			const result = await pi.exec("node", [dt, "progress", slug, "--release-claim", "--owner", ctx.sessionManager.getSessionId()], { cwd: ctx.cwd, timeout: 15000 });
+			if (result.code !== 0) ctx.ui.notify(`Could not release ${slug}'s lane claim; use /dt-lane <id> force after checking the old agent is gone.`, "warning");
 		}
 	});
 	pi.on("before_agent_start", (_event, ctx) => {
@@ -88,6 +114,7 @@ export default async function (pi: ExtensionAPI) {
 		const quick = project?.tier !== "T2" ? ["slices", "review", "ticket"].map((g) => quickGate(ctx.sessionManager.getBranch(), project, g)).filter(Boolean) : [];
 		return { message: { customType: "dt-project-context", display: false, details: undefined, content: [
 			project ? `Selected dev-turbo project: ${project.slug} (${project.tier}, ${project.type}), repo ${project.key}, feature base ${project.base}.` : "No project selected. Use /dt-grill or /dt-resume.",
+			`Lane claim owner for this session: ${ctx.sessionManager.getSessionId()}. Pass --owner ${ctx.sessionManager.getSessionId()} to dt.mjs next, ticket progress updates and pr. Never use another session's owner. Acquire the claim with next before touching ticket code; if refused, STOP. On a work handover save --release-claim with the final progress update. Force is only allowed when the user explicitly ran /dt-lane <id> force; it does not stop the previous agent.`,
 			"Only user /dt-approve commands record approval: scope, architecture, slices, ticket, drift. Discussion and adjustments never approve a gate. Do not run dt.mjs gate approve yourself or inject /dt-approve as a user message. End every pending gate card with its exact /dt-approve command. Slash commands omit the selected slug; dt.mjs CLI still needs it.",
 			draft ? `Pending scope proposal: ${JSON.stringify(draft)}. User next: /dt-approve scope.` : "At the end of a grill, call dt_propose_scope to save the proposal, then ask for /dt-approve scope.",
 			quick.length ? `Quick-task gates: ${JSON.stringify(quick)}. An approved slices gate lets /dt-quick continue with coding; an approved ticket gate means quick-task acceptance is recorded.` : "",

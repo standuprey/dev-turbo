@@ -11,12 +11,12 @@ flowchart LR
   SL --> G2{"Slices<br/>/dt-approve slices"}
   G2 -->|"initial plan"| T0["ticket 00 skeleton<br/>+ sequence diagram"]
   G2 -->|"existing plan; 00 accepted"| L
-  T0 --> SkeletonAcceptance{"Skeleton acceptance<br/>/dt-approve ticket 00"}
+  T0 --> SkeletonAcceptance{"Skeleton acceptance<br/>/dt-approve 00"}
   SkeletonAcceptance --> L["/dt-lane ×2<br/>monorepo: clones · standalone: worktrees<br/>BDD red → TDD green → verify → PR"]
   Q & Q1 & L --> R["/dt-review<br/>3 axes · arch delta · PR comment"]
   R -->|"findings: fix and re-review"| R
-  R --> M["human merges PRs<br/>/dt-final-check verifies acceptance · saves evidence"]
-  M --> G3{"Ticket acceptance<br/>/dt-approve ticket"}
+  R --> M["human merges PRs"]
+  M --> G3{"Ticket closure<br/>/dt-approve id"}
   G3 -->|"T2: next ready ticket"| L
   G3 -->|"every 2-3 merges and at the end"| D["/dt-drift<br/>actual vs spec · red edges"]
   D --> G4{"Architecture drift<br/>/dt-approve drift"}
@@ -37,7 +37,7 @@ flowchart LR
 
 ## Sessions are disposable
 
-The grill saves a Scope proposal. `/dt-approve scope` asks you to confirm the slug, records Scope approval and selects that project. Following slash commands omit the slug: `/dt-spec`, `/dt-slice`, `/dt-lane next`, `/dt-review <id>`, `/dt-drift`, `/dt-status`. The footer shows the selection above the model name. Selection is stored in the Pi session and scoped to the repo/feature directory; reopening, reloading or forking restores it, and session-tree navigation follows the selection on that branch. A new session starts unselected; `/dt-resume [slug]` selects an existing feature. Starting a new grill clears the old selection. Missing selections fail before any workflow prompt reaches the model. The underlying dt.mjs CLI still requires explicit slugs.
+The grill saves a Scope proposal. `/dt-approve scope` asks you to confirm the slug, records Scope approval and selects that project. Following slash commands omit the slug: `/dt-spec`, `/dt-slice`, `/dt-lane`, `/dt-review <id>`, `/dt-drift`, `/dt-status`. The footer shows the selection above the model name. Selection is stored in the Pi session and scoped to the repo/feature directory; reopening, reloading or forking restores it, and session-tree navigation follows the selection on that branch. A new session starts unselected; `/dt-resume [slug]` selects an existing feature. Starting a new grill clears the old selection. Missing selections fail before any workflow prompt reaches the model. The underlying dt.mjs CLI still requires explicit slugs.
 
 The grill, `/dt-amend` clarification rounds and `/dt-spec` may rely on the conversation. `/dt-amend` writes nothing: a fresh session must ask for the intended change if it is not in context. Design proposals go into spec.md and slice proposals into ticket files through their respective commands; other workflow outcomes use saved state. In a new session, `/dt-resume` lists the repository's features, refreshes PR and issue states, posts a short brief, and can put the next workflow command into the editor without running it. Context stays small: the brief, then only the ticket, spec sections and code the next step needs.
 
@@ -48,16 +48,16 @@ The grill, `/dt-amend` clarification rounds and `/dt-spec` may rely on the conve
 | Scope | G0 | `/dt-approve scope` confirms the proposal and selects the project. |
 | Architecture | G1 | `/dt-approve architecture` accepts modules and contracts. |
 | Slices | G2 | `/dt-approve slices` accepts the ticket plan (or T1 scenario plan). |
-| Ticket acceptance | G3 | `/dt-approve ticket <id>` after merge and verified acceptance; quick tasks omit the ID. |
+| Ticket acceptance | G3 | `/dt-approve <id>` checks every saved PR live on GitHub and closes the ticket; quick tasks use `/dt-approve ticket`. |
 | Architecture drift | G4 | `/dt-approve drift` chooses each finding; `/dt-drift apply` applies the saved decisions. |
 
-Ticket 00 is the skeleton. Its acceptance is not an extra gate. Only `/dt-approve` records human approval; discussion revises proposals. No approval command merges a PR or starts implementation.
+Ticket 00 is the skeleton. Its acceptance is not an extra gate. Only `/dt-approve` records human approval; discussion revises proposals. No approval command merges a PR or starts implementation. Ticket closure does not claim staging or production acceptance; it requires only saved PR references and successful live merge checks.
 
 Initial-planning and review gate cards have the same general shape: what you approve in ≤ 10 lines, the relevant diagram, the 3 least-sure decisions, up to 5 "look yourself" pointers, and the exact next `/dt-approve` command; questions and changes stay in discussion. The card itself stays in chat; `progress.json` keeps the gate's state (`pending`, `approved`, `changes`) and a one-line note, and design decisions go into `spec.md`.
 
 ### T2 implementation loop
 
-After 00 acceptance: `/dt-lane next` → `/dt-review <id>` (fix and repeat review) → human merge → `/dt-final-check <id>` (missing acceptance evidence only) → `/dt-approve ticket <id>` → next ready ticket. At most two tickets are in flight. Every 2–3 merges and at the end, take `/dt-drift` → `/dt-approve drift` → `/dt-drift apply`. Changed spec/scopes return through slice alignment and Slices approval; unchanged plans return to the next ready ticket. All tickets accepted plus resolved final drift ends the loop. See the compact diagram and command table in the README's Flow section, also displayed by `/dt-help`.
+After 00 acceptance: `/dt-lane` → `/dt-review <id>` (fix and repeat review) → human merge → `/dt-approve <id>` (live merge check and internal closure) → next ready ticket. At most two tickets are in flight. Every 2–3 merges and at the end, take `/dt-drift` → `/dt-approve drift` → `/dt-drift apply`. Changed spec/scopes return through slice alignment and Slices approval; unchanged plans return to the next ready ticket. All tickets accepted plus resolved final drift ends the loop. See the compact diagram and command table in the README's Flow section, also displayed by `/dt-help`.
 
 ### Deliberate amendments
 
@@ -65,7 +65,7 @@ After 00 acceptance: `/dt-lane next` → `/dt-review <id>` (fix and repeat revie
 
 ### Re-slicing an existing plan
 
-After approved drift amendments, `/dt-slice` reviews alignment rather than proposing the whole plan again. Its card shows the current spec path and amendment summary, preserved done/merged work, affected tickets with status and reasons, and dependency/parallelism and acceptance deltas. No full ticket table, DAG or unchanged scenario inventory unless requested. Merged 00 awaiting recorded acceptance is not awaiting implementation. Documentation-only clarification does not itself reopen Ticket acceptance; substantive scope/acceptance changes do. The prompt defines this delta-card exception to the general gate-card shape above.
+After approved drift amendments, `/dt-slice` reviews alignment rather than proposing the whole plan again. Its card shows the current spec path and amendment summary, preserved done/merged work, affected tickets with status and reasons, and dependency/parallelism and acceptance deltas. No full ticket table, DAG or unchanged scenario inventory unless requested. Merged 00 awaiting recorded acceptance is not awaiting implementation. Merged work is never reopened for acceptance or scope changes; extra work gets a follow-up ticket. The prompt defines this delta-card exception to the general gate-card shape above.
 
 ## Two modalities
 

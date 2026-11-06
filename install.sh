@@ -16,8 +16,8 @@ EXTENSIONS="$PI/extensions"
 command -v node >/dev/null || { echo "node 18+ is required"; exit 1; }
 mkdir -p "$PROMPTS" "$DT/overlays" "$DT/features" "$EXTENSIONS"
 cp "$KIT"/prompts/dt-*.md "$PROMPTS"/
-# Remove obsolete prompts when upgrading: status is an extension; accept is final-check.
-rm -f "$PROMPTS/dt-status.md" "$PROMPTS/dt-accept.md"
+# Remove obsolete prompts when upgrading: ticket closure is handled by dt-approve.
+rm -f "$PROMPTS/dt-status.md" "$PROMPTS/dt-accept.md" "$PROMPTS/dt-final-check.md"
 cp "$KIT"/dt.mjs "$DT"/dt.mjs
 cp "$KIT"/AGENTS.md "$DT"/AGENTS.md
 cp "$KIT"/README.md "$DT"/README.md
@@ -27,7 +27,7 @@ cp "$KIT"/extensions/dt-help.ts "$EXTENSIONS"/dt-help.ts
 mkdir -p "$EXTENSIONS/dt-autocomplete"
 cp "$KIT"/extensions/dt-autocomplete/index.ts "$KIT"/extensions/dt-autocomplete/completion.mjs "$EXTENSIONS/dt-autocomplete"/
 mkdir -p "$EXTENSIONS/dt-session"
-cp "$KIT"/extensions/dt-session/index.ts "$KIT"/extensions/dt-session/state.mjs "$KIT"/extensions/dt-session/footer.mjs "$KIT"/extensions/dt-session/gates.mjs "$KIT"/extensions/dt-session/runtime.ts "$EXTENSIONS/dt-session"/
+cp "$KIT"/extensions/dt-session/index.ts "$KIT"/extensions/dt-session/state.mjs "$KIT"/extensions/dt-session/lane-picker.mjs "$KIT"/extensions/dt-session/footer.mjs "$KIT"/extensions/dt-session/gates.mjs "$KIT"/extensions/dt-session/runtime.ts "$EXTENSIONS/dt-session"/
 mkdir -p "$EXTENSIONS/dt-status"
 cp "$KIT"/extensions/dt-status/index.ts "$KIT"/extensions/dt-status/status.mjs "$EXTENSIONS/dt-status"/
 mkdir -p "$EXTENSIONS/dt-approve"

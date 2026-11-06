@@ -35,19 +35,21 @@ test("selected project's current ticket files supply IDs, titles and next", asyn
 	const get = async () => ({ base, features });
 	const selected = { ...project, base };
 	const items = await completeArguments("dt-lane", "", get, selected);
-	assert.deepEqual(values(items), ["next", "00", "07"]);
-	assert.equal(items[2].description, "Ship checkout");
+	assert.deepEqual(values(items), ["00", "07"]);
+	assert.equal(items[1].description, "Ship checkout");
 	assert.deepEqual(values(await completeArguments("dt-review", "0", get, selected)), ["00", "07"]);
-	assert.deepEqual(values(await completeArguments("dt-final-check", "0", get, selected)), ["00", "07"]);
+	assert.equal(await completeArguments("dt-final-check", "0", get, selected), null);
 	assert.equal(await completeArguments("dt-final-check", "07 a", get, selected), null);
-	assert.deepEqual(values(await completeArguments("dt-lane", "n", get, selected)), ["next"]);
+	assert.equal(await completeArguments("dt-lane", "n", get, selected), null);
+	assert.deepEqual(values(await completeArguments("dt-lane", "07 f", get, selected)), ["07 force"]);
+	assert.equal(await completeArguments("dt-lane", "next f", get, selected), null);
 	assert.deepEqual(values(await completeArguments("dt-review", "07 a", get, selected)), ["07 autofix"]);
 	assert.equal(await completeArguments("dt-review", "my-branch", get, selected), null);
 	assert.equal(await completeArguments("dt-review", "checkout 07 autofix", get, selected), null);
 	assert.equal(await completeArguments("dt-review", "", get, { ...selected, base: "/other-repo" }), null);
 	await writeFile(join(dir, "08-new.md"), '---\nid: "08"\ntitle: New ticket\n---\n');
 	assert.deepEqual(values(await completeArguments("dt-review", "08", get, selected)), ["08"]);
-	assert.deepEqual(values(await completeArguments("dt-lane", "", get, { ...selected, slug: "catalog" })), ["next"]);
+	assert.equal(await completeArguments("dt-lane", "", get, { ...selected, slug: "catalog" }), null);
 });
 
 test("provider preserves other completions and sees project switches immediately", async () => {

@@ -63,12 +63,13 @@ export function renderStatus(project, snapshot, logic, context = {}) {
 		for (const t of active) {
 			const saved = prog.tickets[t.id];
 			lines.push(`- **${t.id} ${text(t.title)}** — ${ticketMerged(saved) ? "PRs merged; recorded acceptance pending" : ticketPending(saved) ? "acceptance pending" : st[t.id].status}${saved.lane ? " · " + text(saved.lane) : ""}`);
+			if (saved.claim) lines.push(`  - **Claim:** ${text(saved.claim.owner)} · ${text(saved.claim.checkout)} · acquired ${text(saved.claim.acquired)}`);
 			if (saved.verification) lines.push(`  - Saved verification: ${text(saved.verification)}`);
 			if (saved.next && !(ticketMerged(saved) && /^\/dt-(lane|review)\b/.test(note(saved.next)))) lines.push(`  - Saved handover: ${note(saved.next)}`);
 			for (const item of saved.todo) lines.push(`  - Todo: ${note(item)}`);
 			for (const item of saved.blockers) lines.push(`  - **Blocker:** ${text(item)}`);
 			if (saved.prs.length) lines.push(`  - Saved PRs: ${saved.prs.map((pr) => `${pr.number ? "#" + pr.number : text(pr.url || "PR")} ${text(pr.state || "unknown")} (checked ${text(pr.checked) || "unknown"})`).join(" · ")}`);
-			if (st[t.id].note) lines.push(`  - **Merged but not accepted. Use \`/dt-final-check ${t.id}\` for acceptance evidence, not repeat code review. Only \`/dt-approve ticket ${t.id}\` records completion.**`);
+			if (st[t.id].note) lines.push(`  - **Merged but not accepted. Use \`/dt-approve ${t.id}\` to check live merge states and record completion. No repeat code review or rebuild.**`);
 		}
 	}
 	lines.push("", `## Tickets / slices left (${remaining.length})`);

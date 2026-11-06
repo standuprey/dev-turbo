@@ -47,6 +47,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 		async exec(command, args, options) {
 			calls.push({ command, args, options });
 			if (args[1] === "info") return { code: 0, stdout: JSON.stringify(repo) };
+			if (args[1] === "progress") return { code: 0, stdout: "released" };
 			if (args[1] === "gate") return gateFailure ? { code: 1, stderr: "Gate 0 failed" } : { code: 0, stdout: "G0 approved" };
 			if (args[1] === "resume") {
 				if (localResumeFailure && args.includes("--no-gh")) return { code: 1, stderr: "Local state unreadable" };
@@ -67,7 +68,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	await handlers.get("session_start")({}, ctx);
 	assert.equal(selected(), null);
 	const input = (text) => handlers.get("input")({ text, source: "interactive" }, ctx);
-	assert.equal(input("/dt-lane").action, "handled");
+	assert.equal((await input("/dt-lane")).action, "handled");
 	assert.equal(calls.filter((c) => c.args[1] === "gate").length, 0);
 	const tool = tools.get("dt_propose_scope");
 	const params = { slug: "checkout", tier: "T2", type: "service", note: "Checkout feature" };
@@ -77,8 +78,12 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	assert.equal(calls.filter((c) => c.args[1] === "gate").length, 0);
 	pi.appendEntry("dt-project", { ...params, key: repo.key, base: repo.featuresBase });
 	assert.equal(selected().slug, "checkout");
-	assert.equal(input("/dt-lane 00").text, "/dt-lane checkout 00");
-	assert.equal(input("/dt-spec").text, "/dt-spec checkout service");
+	assert.equal((await input("/dt-lane 00")).text, "/dt-lane checkout 00");
+	assert.equal((await input("/dt-lane 00 force")).text, "/dt-lane checkout 00 force");
+	assert.match(handlers.get("before_agent_start")({}, ctx).message.content, /Lane claim owner for this session: one/);
+	await handlers.get("session_shutdown")({}, ctx);
+	assert.ok(calls.some((c) => c.args.join(" ").includes("progress checkout --release-claim --owner one")));
+	assert.equal((await input("/dt-spec")).text, "/dt-spec checkout service");
 	// Reopening/reloading/forking restores the active branch's selection.
 	await handlers.get("session_start")({ reason: "reload" }, ctx);
 	assert.equal(selected().slug, "checkout");
@@ -100,16 +105,16 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	eventHandlers.delete("dt:project:select");
 	resumeFailure = true;
 	await commands.get("dt-resume").handler("catalog", ctx);
-	assert.equal(input("/dt-lane").text, "/dt-lane catalog next");
+	assert.equal((await input("/dt-lane")).action, "handled");
 	assert.equal(selected().slug, "catalog");
-	assert.ok(messages.at(-1).content.startsWith("Next: /dt-lane next"));
+	assert.ok(messages.at(-1).content.startsWith("Next: /dt-lane"));
 	assert.ok(notices.some(([message]) => message.includes("remote refresh failed")));
 	assert.ok(handlers.get("before_agent_start")({}, ctx).message.content.includes("Selected dev-turbo project: catalog"));
 	eventHandlers.set("dt:project:select", selectionListener);
 	resumeFailure = false;
 	await commands.get("dt-resume").handler("catalog", ctx);
-	assert.equal(input("/dt-lane checkout next").action, "handled");
-	assert.equal(input("/dt-lane").text, "/dt-lane catalog next");
+	assert.equal((await input("/dt-lane checkout next")).action, "handled");
+	assert.equal((await input("/dt-lane")).action, "handled");
 	// UI resume keeps feature selection but never offers actions or changes the editor.
 	ctx.hasUI = true;
 	const selections = [];
@@ -129,9 +134,9 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	entries = saved;
 	handlers.get("session_tree")({}, ctx);
 	assert.equal(selected().slug, "checkout");
-	input("/dt-grill a different project");
+	await input("/dt-grill a different project");
 	assert.equal(selected(), null);
-	assert.equal(input("/dt-review").action, "handled");
+	assert.equal((await input("/dt-review")).action, "handled");
 	assert.ok(notices.length);
 	const guard = handlers.get("tool_call");
 	assert.ok(guard({ toolName: "bash", input: { command: "node dt.mjs gate checkout 1 approve" } }).block);

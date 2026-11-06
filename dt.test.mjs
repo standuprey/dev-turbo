@@ -130,7 +130,7 @@ test("a feature resumes from its folder alone: gates, progress and briefs", () =
   assert.equal(pending.phase, "spec: Gate 1 pending");
   assert.match(pending.next, /Gate 1: waiting for my decision \(card shown\)/);
   ok("gate", "f", "1", "approve");
-  assert.match(ok("gate", "f", "2", "approve"), /next: \/dt-lane f next/);
+  assert.match(ok("gate", "f", "2", "approve"), /next: \/dt-lane f/);
 
   const before = fs.readFileSync(path.join(dir, "progress.json"), "utf8");
   assert.match(ok("next", "f", "--dry-run", "--no-fetch"), /ticket 00 "Ticket 00"/);
@@ -154,7 +154,7 @@ test("a feature resumes from its folder alone: gates, progress and briefs", () =
   assert.match(brief, /Next:\*\* 00: run the staging check/);
   assert.match(ok("resume", "f", "--no-gh", "--prompt"), /never edit progress.json by hand/);
 
-  assert.match(ok("gate", "f", "3", "approve", "--ticket", "00"), /next: \/dt-lane f next/);
+  assert.match(ok("gate", "f", "3", "approve", "--ticket", "00"), /next: \/dt-lane f/);
   assert.deepEqual([progress().tickets["00"].status, progress().tickets["00"].todo, progress().drift.merges_since], ["done", undefined, 1]);
   assert.match(ok("progress", "f", "--ticket", "00"), /"status": "done"/);
   const log = spawnSync("git", ["log", "--format=%s"], { cwd: path.join(state, "features"), encoding: "utf8" }).stdout;

@@ -42,7 +42,7 @@ export default async function (pi: ExtensionAPI) {
 		return box;
 	});
 	pi.registerCommand("dt-approve", {
-		description: "Approve a pending named gate: scope, architecture, slices, ticket or drift",
+		description: "Close a merged ticket: <id>; approve scope, architecture, slices or drift",
 		getArgumentCompletions: async (prefix) => {
 			if (!currentCtx) return null;
 			try { return approvalCompletions(await view(currentCtx), prefix); } catch { return null; }
@@ -56,7 +56,8 @@ export default async function (pi: ExtensionAPI) {
 			try {
 				if (!ctx.hasUI) throw new Error("A dialog-capable UI is required for human gate approval.");
 				const initial = await view(ctx, true);
-				const [name, ...rest] = args.trim().split(/\s+/);
+				let [name, ...rest] = args.trim().split(/\s+/);
+				if (/^\d{1,2}$/.test(name)) { rest.unshift(name); name = "ticket"; }
 				const session = ctx.sessionManager.getSessionId();
 				if (name === "drift" && !rest.length && pendingGates(initial).includes("drift")) {
 					for (const id of findings(initial.snapshot)) {
@@ -67,8 +68,8 @@ export default async function (pi: ExtensionAPI) {
 					}
 				}
 				const plan = approvalPlan(initial, name, rest);
-				const title = NAMES[name].label + (plan.ticket ? ` ${plan.ticket}` : "");
-				const extra = name === "scope" ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}` : name === "ticket" ? "\nThis confirms acceptance checks are complete. It records completion; it does not merge PRs." : name === "drift" ? `\nDecisions: ${plan.note}` : "";
+				const title = plan.ticket ? `Ticket closure ${plan.ticket}` : NAMES[name].label;
+				const extra = name === "scope" ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}` : name === "ticket" ? "\nClose this ticket after checking every saved PR is merged on GitHub. No acceptance checks, code review or rebuild. This never merges PRs." : name === "drift" ? `\nDecisions: ${plan.note}` : "";
 				const summary = name === "scope" ? plan.note : plan.quick ? plan.quick.note || "Review the quick-task proposal." : (name === "ticket" ? [initial.snapshot.prog.tickets[plan.ticket]?.verification, ...(initial.snapshot.prog.tickets[plan.ticket]?.todo || [])].filter(Boolean).join("\nChecklist: ") : initial.snapshot.prog.gates[`G${plan.id}`]?.note) || "Review the saved proposal before confirming.";
 				if (!await ctx.ui.confirm(`Approve ${title}?`, `${plan.slug}${extra}\n${summary}`)) return;
 				if (currentCtx?.sessionManager.getSessionId() !== session) throw new Error("Session changed while confirming. No approval was applied.");
@@ -89,6 +90,18 @@ export default async function (pi: ExtensionAPI) {
 					pi.appendEntry(QUICK, { ...plan.quick, state: "approved" });
 					applied = true;
 				} else {
+					if (plan.ticket) {
+						for (const saved of fresh.snapshot.prog.tickets[plan.ticket].prs) {
+							const url = String(saved.url || "").match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/);
+							if (url && url[1].toLowerCase() !== fresh.repo.key.toLowerCase()) throw new Error("A saved PR belongs to another repository. Correct the PR reference before closing the ticket.");
+							const ref = saved.number || url?.[2];
+							if (!ref || !/^[1-9]\d*$/.test(String(ref))) throw new Error("A saved PR has no valid number or GitHub URL. Save its PR reference before closing the ticket.");
+							const pr = JSON.parse(await exec("gh", ["pr", "view", String(ref), "--repo", fresh.repo.key, "--json", "state"], ctx));
+							if (pr.state !== "MERGED") throw new Error(`PR ${ref} is not merged. Merge every ticket PR yourself before closing ${plan.ticket}.`);
+						}
+						const latest = await view(ctx, true);
+						if (latest.revision !== fresh.revision) throw new Error("The ticket changed during merge checks. Retry; no completion was recorded.");
+					}
 					const options = ["--note", plan.note];
 					if (name === "scope") options.push("--tier", plan.tier, "--type", plan.type);
 					if (plan.ticket) options.push("--ticket", plan.ticket);

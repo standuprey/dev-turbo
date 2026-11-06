@@ -36,13 +36,14 @@ test("named gate completion only offers pending gates and ticket IDs", () => {
 	assert.throws(() => approvalPlan(t, "architecture", []), /not awaiting/);
 });
 
-test("ticket acceptance requires merged PRs, saved verification and cleared blockers", () => {
-	const saved = { status: "review", acceptance: { state: "pending" }, verification: "tests + staging", prs: [{ state: "merged" }] };
+test("ticket closure needs PR references, not acceptance evidence or saved merge states", () => {
+	const saved = { status: "review", acceptance: { state: "changes" }, prs: [{ number: 123, state: "open" }], blockers: ["staging missing"] };
 	assert.equal(approvalPlan(view({}, saved), "ticket", ["0"]).ticket, "00");
-	assert.throws(() => approvalPlan(view({}, { ...saved, prs: [{ state: "open" }] }), "ticket", ["00"]), /merged/);
-	assert.throws(() => approvalPlan(view({}, { ...saved, verification: "" }), "ticket", ["00"]), /verification/);
-	assert.throws(() => approvalPlan(view({}, { ...saved, blockers: ["staging failed"] }), "ticket", ["00"]), /blockers/);
-	assert.ok(pendingGates(view({}, { status: "review", next: "Gate 3: merge decision" })).includes("ticket")); // Legacy state.
+	assert.throws(() => approvalPlan(view({}, { ...saved, prs: [] }), "ticket", ["00"]), /No PRs/);
+	assert.throws(() => approvalPlan(view({}, { ...saved, status: "done" }), "ticket", ["00"]), /already done/);
+	assert.throws(() => approvalPlan(view({}, saved), "ticket", ["99"]), /Unknown ticket/);
+	assert.equal(approvalPlan(view({ G2: { state: "pending" }, G4: { state: "pending" } }, saved), "ticket", ["00"]).ticket, "00", "planning gates constrain implementation, not closure of merged work");
+	assert.deepEqual(approvalCompletions(view({}, saved), "0").map((i) => i.value), ["00"]);
 });
 
 test("drift needs exactly one explicit decision per numbered finding", () => {
@@ -56,7 +57,7 @@ test("drift needs exactly one explicit decision per numbered finding", () => {
 test("next steps are workflow commands, and spec amendments reopen slice review", () => {
 	assert.deepEqual(nextCommands(view({ G1: { state: "pending" } }), logic), ["/dt-approve architecture"]);
 	assert.deepEqual(nextCommands(view({ G2: { state: "pending" } }), logic), ["/dt-approve slices"]);
-	assert.deepEqual(nextCommands(view({}, { status: "review", acceptance: { state: "pending" } }), logic), ["/dt-approve ticket 00"]);
+	assert.deepEqual(nextCommands(view({}, { status: "review", acceptance: { state: "pending" } }), logic), ["/dt-approve 00"]);
 	const amended = view({ G4: { state: "approved", at: "2026-11-05T00:00Z", note: "1:spec" } });
 	assert.ok(needsSliceReview(amended.snapshot));
 	assert.deepEqual(nextCommands(amended, logic), ["/dt-slice"]);
@@ -72,21 +73,21 @@ test("next steps are workflow commands, and spec amendments reopen slice review"
 	assert.equal(namedText("Gate 1 pending, G3 and G2b"), "Architecture pending, Ticket acceptance and ticket 00 acceptance");
 });
 
-test("merged tickets route to acceptance preparation, never review or rebuild", () => {
+test("merged tickets route straight to internal closure, never review or rebuild", () => {
 	for (const acceptance of [undefined, { state: "changes" }]) {
 		for (const next of ["", "/dt-review 00", "/dt-review demo 00 autofix", "/dt-lane 00"]) {
 			const v = view({}, { status: "review", prs: [{ state: "merged" }, { state: "merged" }], acceptance, next });
 			v.snapshot.prog.next = next;
 			const before = JSON.stringify(v.snapshot.prog);
-			assert.deepEqual(nextCommands(v, logic), ["/dt-final-check 00"]);
-			assert.match(renderStatus(project, v.snapshot, logic), /`\/dt-final-check 00`/);
+			assert.deepEqual(nextCommands(v, logic), ["/dt-approve 00"]);
+			assert.match(renderStatus(project, v.snapshot, logic), /`\/dt-approve 00`/);
 			assert.equal(JSON.stringify(v.snapshot.prog), before, "routing must not mutate acceptance or status");
 		}
 	}
 	const pending = { status: "review", prs: [{ state: "merged" }], acceptance: { state: "pending" }, verification: "acceptance evidence" };
-	assert.deepEqual(nextCommands(view({}, pending), logic), ["/dt-approve ticket 00"]);
+	assert.deepEqual(nextCommands(view({}, pending), logic), ["/dt-approve 00"]);
 	for (const gap of [{ verification: "" }, { blockers: ["staging access"] }]) {
-		assert.deepEqual(nextCommands(view({}, { ...pending, ...gap }), logic), ["/dt-final-check 00"]);
+		assert.deepEqual(nextCommands(view({}, { ...pending, ...gap }), logic), ["/dt-approve 00"]);
 	}
 });
 
@@ -105,9 +106,9 @@ test("merged routing preserves gates, partial-merge review and completed tickets
 	assert.deepEqual(nextCommands(view({}, { ...merged, status: "done", acceptance: { state: "approved" } }), logic), ["/dt-status"]);
 });
 
-test("CLI merged suggestions use acceptance preparation instead of raw approval", () => {
+test("CLI merged suggestions use internal closure", () => {
 	const v = view({}, { status: "review", prs: [{ state: "merged" }], acceptance: { state: "changes" } });
-	assert.equal(logic.suggestNext({ slug: project.slug, feature: project, ...v.snapshot }), "/dt-final-check demo 00");
+	assert.equal(logic.suggestNext({ slug: project.slug, feature: project, ...v.snapshot }), "/dt-approve 00");
 });
 
 test("small-task approvals use the same names and stay in their scope session", () => {

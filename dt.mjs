@@ -7,7 +7,7 @@
 //   dt.mjs resume [<slug>] [--json] [--prompt] [--no-gh]    list features, or a short brief of one (refreshes PRs/issues)
 //   dt.mjs progress <slug> [--ticket ID] [updates]          show or update progress.json (current state only)
 //   dt.mjs status <slug> [--no-gh]                          kanban + DAG + unsafe pairs
-//   dt.mjs next <slug> [--ticket ID] [--dry-run]            pick a ready ticket; branch in place (monorepo) or worktree (standalone)
+//   dt.mjs next <slug> --owner ID [--ticket ID] [--force] [--dry-run]            pick a ready ticket; branch in place (monorepo) or worktree (standalone)
 //   dt.mjs gate <slug> <0-4> approve|change|pending [--note "..."] [--ticket ID] [--tier T2 --type service] [--dry-run]
 //   dt.mjs pr <slug> <ID> --body-file FILE | pr quick --title "..." --body-file FILE   [--dry-run]
 //   dt.mjs comment --body-file FILE [--branch B] [--dry-run]
@@ -169,7 +169,7 @@ function loadTickets(ctx, slug) {
 const findTicket = (tickets, id) => tickets.find((t) => t.id === pad(id)) || fail(`no ticket ${pad(id)}`);
 
 // ---------- progress.json: current state only ----------
-const ticketDefaults = () => ({ status: "todo", next: "", blockers: [], todo: [], verification: "", branch: "", lane: "", prs: [], issues: [], updated: "" });
+const ticketDefaults = () => ({ claim: null, status: "todo", next: "", blockers: [], todo: [], verification: "", branch: "", lane: "", prs: [], issues: [], updated: "" });
 export function emptyProgress() {
   return { version: 1, updated: "", next: "", blockers: [], todo: [], gates: {}, issues: [], drift: { last: "", merges_since: 0 }, tickets: {} };
 }
@@ -382,14 +382,14 @@ export function suggestNext({ slug, feature, prog, tickets, st }) {
   if (g("G2") !== "approved") return `/dt-slice ${slug}`;
   if (g("G4") === "pending") return "Gate 4: ask for a decision on each drift finding";
   const merged = tickets.find((t) => st[t.id].note);
-  if (merged) return `/dt-final-check ${slug} ${merged.id}`;
-  const wip = tickets.find((t) => st[t.id].status === "in_progress");
-  if (wip) return `/dt-lane ${slug} ${wip.id}`;
+  if (merged) return `/dt-approve ${merged.id}`;
+  if (prog.drift.merges_since >= DRIFT_EVERY) return `/dt-drift ${slug}`;
+  try { pickReady(tickets, st); return `/dt-lane ${slug}`; } catch { /* no spare runnable work */ }
   const review = tickets.find((t) => st[t.id].status === "review");
   if (review) return `/dt-review ${slug} ${review.id}`;
   const allDone = tickets.length && tickets.every((t) => st[t.id].status === "done");
   if (prog.drift.merges_since >= DRIFT_EVERY || (allDone && prog.drift.merges_since > 0)) return `/dt-drift ${slug}`;
-  return allDone ? "feature complete" : `/dt-lane ${slug} next`;
+  return allDone ? "feature complete" : tickets.some((t) => st[t.id].status === "in_progress") ? `/dt-status ${slug}` : `/dt-lane ${slug}`;
 }
 
 export function ago(s, nowMs = Date.now()) {
@@ -423,6 +423,7 @@ export function renderBrief({ slug, feature, prog, tickets, st, phase, lanes = [
   for (const t of inFlight) {
     const e = prog.tickets[t.id] || ticketDefaults();
     lines.push(`- **${t.id}** ${t.title} · ${[st[t.id].status, e.lane, st[t.id].note].filter(Boolean).join(" · ")}`);
+    if (e.claim) lines.push(`  - Claim: ${e.claim.owner} · ${e.claim.checkout} · acquired ${e.claim.acquired}`);
     if (e.prs.length) lines.push(`  - PRs: ${e.prs.map(prLabel).join(" · ")}${checkedLabel(e.prs, nowMs)}`);
     if (e.issues.length) lines.push(`  - Issues: ${e.issues.map(issueLabel).join(" · ")}`);
     if (e.verification) lines.push(`  - Verified: ${e.verification}`);
@@ -447,7 +448,7 @@ export function resumeInstructions({ slug, dir, next, modality }) {
     "",
     `1. Next step: ${next}`,
     `2. ${where} If this is the wrong checkout, tell me where to open pi and stop.`,
-    "3. If the step belongs to a workflow command (/dt-lane, /dt-review, /dt-final-check, /dt-slice, /dt-drift), read its template in ~/.pi/agent/prompts/ first and follow its rules. Read only what the step needs: the ticket, the spec sections it names, the code it touches; never every ticket.",
+    "3. If the step belongs to a workflow command (/dt-lane, /dt-review, /dt-slice, /dt-drift), read its template in ~/.pi/agent/prompts/ first and follow its rules. Read only what the step needs: the ticket, the spec sections it names, the code it touches; never every ticket.",
     `4. Before you stop, hand over, or ask me to approve anything, save the current state with \`node ~/.pi/agent/dt/dt.mjs progress ${slug} [--ticket ID] ...\` (it replaces the old state; never edit progress.json by hand).`].join("\n");
 }
 
@@ -557,7 +558,7 @@ function cmdResume(ctx, slug) {
   else console.log(brief);
 }
 
-const PROGRESS_UPDATES = ["--next", "--blocker", "--no-blockers", "--todo", "--no-todo", "--verification", "--status", "--branch", "--lane", "--pr", "--remove-pr", "--issue", "--remove-issue"];
+const PROGRESS_UPDATES = ["--release-claim", "--next", "--blocker", "--no-blockers", "--todo", "--no-todo", "--verification", "--status", "--branch", "--lane", "--pr", "--remove-pr", "--issue", "--remove-issue"];
 function checkText(name, v) {
   v = String(v ?? "").trim();
   if (v.length > MAX_TEXT) fail(`${name} is ${v.length} characters; keep it under ${MAX_TEXT} (details belong in the PR, the spec or the ticket)`);
@@ -588,6 +589,12 @@ function cmdProgress(ctx, slug) {
   const issues = opts("--issue").map(parseIssue);
   const prog = updateProgress(ctx, slug, (prog) => {
     const e = id ? ticketOf(prog, id) : prog;
+    if (id) assertClaim(e, opt("--owner"));
+    if (flag("--release-claim")) {
+      if (!opt("--owner")) fail("--release-claim needs --owner");
+      if (id) e.claim = null;
+      else for (const saved of Object.values(prog.tickets)) if (saved.claim?.owner === opt("--owner")) saved.claim = null;
+    }
     if (next !== null) e.next = next;
     if (blockers) e.blockers = blockers;
     if (todo) e.todo = todo;
@@ -621,6 +628,7 @@ function cmdStatus(ctx, slug) {
 function ticketState(e) {
   if (!e) return "";
   const lines = [];
+  if (e.claim) lines.push(`  claim: ${e.claim.owner} in ${e.claim.checkout}`);
   if (e.verification) lines.push(`  verified: ${e.verification}`);
   if (e.blockers?.length) lines.push(`  blockers: ${e.blockers.join(" · ")}`);
   if (e.todo?.length) lines.push(`  todo: ${e.todo.join(" · ")}`);
@@ -634,52 +642,80 @@ function describe(ctx, slug, t, where) {
     `  progress: dt.mjs progress ${slug} --ticket ${t.id} ...`].join("\n");
 }
 
+function assertClaim(saved, owner) {
+  if (saved?.claim && saved.claim.owner !== owner) fail(`ticket claimed by ${saved.claim.owner} in ${saved.claim.checkout}; use /dt-lane <id> force there only after checking the previous agent is gone`);
+}
+
 function cmdNext(ctx, slug) {
   mustFeature(ctx, slug);
-  const wanted = opt("--ticket");
+  const wanted = opt("--ticket"), owner = opt("--owner");
+  if (!owner && !DRY) fail("next needs --owner <session ID>; /dt-lane supplies it");
+  if (flag("--force") && !wanted) fail("--force needs an explicit --ticket ID");
   const cur = ctx.branch.match(new RegExp(`^ticket/${esc(slug)}-(\\d+)$`));
   const lane = ctx.modality === "monorepo" && ctx.laneIndex >= 0 ? `lane ${ctx.laneIndex + 1}` : "";
-  if (cur) {
-    const id = pad(cur[1]);
-    const d = collect(ctx, slug, { gh: false });
-    const t = findTicket(d.tickets, id);
-    if (d.st[id].status !== "done") {
-      if (wanted && pad(wanted) !== id) fail(`this checkout is on ticket ${id}'s branch; finish it or use another lane`);
-      if (d.st[id].status === "todo") updateProgress(ctx, slug, (prog) => { Object.assign(ticketOf(prog, id), { status: "in_progress", branch: ctx.branch, ...(lane ? { lane } : {}) }); });
-      return console.log(`resume: already on ${ctx.branch}\n` + describe(ctx, slug, t, "") + ticketState(d.prog.tickets[id]));
-    }
-    if (git(["status", "--porcelain"], { cwd: ctx.root })) fail(`ticket ${id} is done but the tree is dirty: commit or stash first`);
-    run("git", ["switch", ctx.main], { cwd: ctx.root });
-    console.log(`ticket ${id} is done: switched back to ${ctx.main}`);
-  }
-  if (ctx.modality === "monorepo" && ctx.laneIndex < 0) fail(`run this inside one of the configured lanes:\n  ${ctx.lanes.join("\n  ") || "(none: add lanes to " + CONFIG_PATH + ")"}`);
-  if (ctx.modality === "standalone" && ctx.isWorktree) fail("run this from the main checkout, not from a lane worktree");
-  if (!flag("--no-fetch")) git(["fetch", "--quiet", "origin", ctx.main], { cwd: ctx.root, soft: true });
   const d = collect(ctx, slug, { gh: false });
   if (!d.tickets.length) fail(`no tickets for ${slug} (run /dt-slice first)`);
-  const t = pickReady(d.tickets, d.st, wanted);
-  const branch = `ticket/${slug}-${t.id}`;
-  let where = lane, msg;
-  if (ctx.modality === "monorepo") {
-    if (git(["status", "--porcelain"], { cwd: ctx.root })) fail("working tree is not clean");
-    run("git", ["switch", "-c", branch, `origin/${ctx.main}`], { cwd: ctx.root });
-    run("git", ["push", "-u", "origin", branch], { cwd: ctx.root });
-    msg = describe(ctx, slug, t, `on ${branch} (${lane})`);
-  } else {
-    const rel = path.relative(ctx.root, P(ctx, slug).tickets);
-    if (git(["cat-file", "-e", `origin/${ctx.main}:${rel}`], { cwd: ctx.root, soft: true }) === null) fail(`tickets are not on origin/${ctx.main} yet: commit and push ${rel} first`);
-    const wt = path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`);
-    if (fs.existsSync(wt)) fail(`${wt} already exists`);
-    run("git", ["worktree", "add", "-b", branch, wt, `origin/${ctx.main}`], { cwd: ctx.root });
-    run("git", ["push", "-u", "origin", branch], { cwd: DRY ? ctx.root : wt });
-    where = wt;
-    msg = describe(ctx, slug, t, `in worktree ${wt}`) + `\n\nopen pi in ${wt} and run: /dt-lane ${slug} ${t.id}`;
-  }
-  updateProgress(ctx, slug, (prog) => {
-    Object.assign(ticketOf(prog, t.id), { status: "in_progress", branch, lane: where, next: "turn the ticket's Gherkin into scenarios and see them fail", updated: now() });
+  const current = cur && pad(cur[1]);
+  if (current && d.st[current]?.status !== "done" && wanted && pad(wanted) !== current) fail(`this checkout is on ticket ${current}'s branch; finish it or use another lane`);
+  const resume = current && d.st[current]?.status !== "done" ? current : wanted && d.st[pad(wanted)]?.status === "in_progress" ? pad(wanted) : null;
+  if (ctx.modality === "monorepo" && ctx.laneIndex < 0) fail(`run this inside one of the configured lanes:\n  ${ctx.lanes.join("\n  ")}`);
+  if (ctx.modality === "standalone" && ctx.isWorktree && !resume) fail("run this from the main checkout, not from a lane worktree");
+  if ((!resume || flag("--force")) && git(["status", "--porcelain"], { cwd: ctx.root })) fail("working tree is not clean");
+  let t, previous, branch, where;
+  // Pick and reserve under the same lock, BEFORE any Git side effects.
+  const reserved = updateProgress(ctx, slug, (prog) => {
+    const st = deriveStatuses(d.tickets, prog);
+    t = resume ? findTicket(d.tickets, resume) : pickReady(d.tickets, st, wanted);
+    const e = ticketOf(prog, t.id);
+    const occupied = Object.entries(prog.tickets).find(([id, saved]) => id !== t.id && saved.claim?.checkout === ctx.root);
+    if (occupied) fail(`this checkout is claimed for ticket ${occupied[0]}; finish it or use another lane`);
+    previous = { ...e };
+    if (e.prs?.length && e.prs.every((pr) => pr.state === "merged")) fail(`ticket ${t.id} PRs are merged: use /dt-approve ${t.id}, not /dt-lane`);
+    const checkout = e.claim?.checkout || (ctx.modality === "monorepo" && /^lane \d+$/.test(e.lane) ? ctx.lanes[Number(e.lane.slice(5)) - 1] : ctx.modality === "standalone" ? e.lane : "");
+    if (checkout && (fs.existsSync(checkout) ? fs.realpathSync(checkout) : path.resolve(checkout)) !== fs.realpathSync(ctx.root)) fail(`ticket ${t.id} belongs to checkout ${checkout}; open pi there, or use /dt-lane here`);
+    if (!flag("--force")) assertClaim(e, owner);
+    // Legacy branch-only state still has to pass the capacity and conflict checks.
+    if (e.status === "todo") pickReady(d.tickets, st, t.id);
+    branch = e.branch || `ticket/${slug}-${t.id}`;
+    where = lane || (resume ? ctx.root : path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`));
+    Object.assign(e, { status: e.status === "review" ? "review" : "in_progress", branch, lane: where, claim: { owner: owner || "dry-run", checkout: ctx.root, acquired: now() }, updated: now() });
+    if (!resume) e.next = "turn the ticket's Gherkin into scenarios and see them fail";
   });
+  try {
+    if (resume) {
+      if (ctx.branch !== branch) {
+        if (git(["status", "--porcelain"], { cwd: ctx.root })) fail("working tree is not clean");
+        run("git", ["switch", branch], { cwd: ctx.root });
+      }
+      console.log(`resume: already on ${branch}\n` + describe(ctx, slug, t, "") + ticketState(reserved.tickets[t.id]));
+    } else {
+      if (!flag("--no-fetch")) git(["fetch", "--quiet", "origin", ctx.main], { cwd: ctx.root, soft: true });
+      if (ctx.modality === "monorepo") {
+        run("git", ["switch", "-c", branch, `origin/${ctx.main}`], { cwd: ctx.root });
+        run("git", ["push", "-u", "origin", branch], { cwd: ctx.root });
+        console.log(describe(ctx, slug, t, `on ${branch} (${lane})`));
+      } else {
+        const rel = path.relative(ctx.root, P(ctx, slug).tickets);
+        if (git(["cat-file", "-e", `origin/${ctx.main}:${rel}`], { cwd: ctx.root, soft: true }) === null) fail(`tickets are not on origin/${ctx.main} yet: commit and push ${rel} first`);
+        if (fs.existsSync(where)) fail(`${where} already exists`);
+        run("git", ["worktree", "add", "-b", branch, where, `origin/${ctx.main}`], { cwd: ctx.root });
+        run("git", ["push", "-u", "origin", branch], { cwd: DRY ? ctx.root : where });
+        // No agent works in the new worktree yet. Its /dt-lane call will claim it.
+        updateProgress(ctx, slug, (prog) => { assertClaim(ticketOf(prog, t.id), owner); ticketOf(prog, t.id).claim = null; });
+        console.log(describe(ctx, slug, t, `in worktree ${where}`) + `\n\nopen pi in ${where} and run: /dt-lane ${slug} ${t.id}`);
+      }
+    }
+  } catch (error) {
+    updateProgress(ctx, slug, (prog) => {
+      const e = ticketOf(prog, t.id);
+      assertClaim(e, owner);
+      const created = git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: ctx.root, soft: true }) !== null;
+      if (!created || resume) prog.tickets[t.id] = previous;
+      else e.next = `setup interrupted: ${String(error.message).slice(0, 300)}; resume /dt-lane ${t.id}`;
+    });
+    throw error;
+  }
   commitFeaturesRepo(ctx, slug, `dt: start ${slug} ticket ${t.id}`);
-  console.log(msg);
 }
 
 function issueNumber(url) { return +(url.match(/\/(\d+)\s*$/)?.[1] || 0); }
@@ -753,7 +789,7 @@ function cmdGate(ctx, slug, n, decision) {
     if (n === 3) {
       const e = ticketOf(prog, ticket);
       e.acceptance = { state: GATE_STATE[decision], at: now(), ...(note ? { note } : {}) };
-      if (decision === "approve") { Object.assign(e, { status: "done", next: "", todo: [], blockers: [], updated: now() }); prog.drift.merges_since++; }
+      if (decision === "approve") { Object.assign(e, { status: "done", claim: null, next: "", todo: [], blockers: [], updated: now() }); prog.drift.merges_since++; }
       else e.next = decision === "pending" ? `Gate 3: waiting for the merge decision${note ? ` (${note})` : ""}` : `Gate 3 changes requested: ${note || "see the review on the PR"}`;
     } else {
       prog.gates[`G${n}`] = { state: GATE_STATE[decision], at: now(), ...(note ? { note } : {}) };
@@ -789,6 +825,7 @@ function cmdPr(ctx, slug, id) {
     if (!id) fail("usage: dt.mjs pr <slug> <ID> --body-file FILE");
     mustFeature(ctx, slug);
     t = findTicket(loadTickets(ctx, slug), id);
+    assertClaim(loadProgress(ctx, slug).tickets[t.id], opt("--owner"));
     const want = `ticket/${slug}-${t.id}`;
     if (head !== want) fail(`on ${head}, expected ${want}`);
     if (!bodyFile) fail("pr needs --body-file FILE: a short ## Description and ## Testing with unit tests + staging tests");
@@ -801,6 +838,7 @@ function cmdPr(ctx, slug, id) {
     const pr = ghPr(ctx, url) || { ...parsePrRef(url), branch: head, base: ctx.main, state: ctx.modality === "monorepo" ? "draft" : "open", checked: now() };
     updateProgress(ctx, slug, (prog) => {
       const e = ticketOf(prog, t.id);
+      assertClaim(e, opt("--owner"));
       upsert(e.prs, pr, "number");
       Object.assign(e, { status: e.status === "done" ? "done" : "review", next: `/dt-review ${slug} ${t.id}`, updated: now() });
     });
@@ -869,8 +907,8 @@ function selftest() {
     && phaseOf(prog, { hasSpec: true, tickets, st }) === "build");
   t("suggest spec, slice, merge, lane, drift", suggestNext({ ...base, prog: normalizeProgress(), st: st0 }) === "/dt-spec f web"
     && suggestNext({ ...base, prog: normalizeProgress({ gates: { G1: { state: "approved" } } }), st: st0 }) === "/dt-slice f"
-    && suggestNext({ ...base, prog, st }) === "/dt-final-check f 02"
-    && suggestNext({ ...base, prog: normalizeProgress({ ...prog, tickets: { "00": { status: "done" } } }), st: st0 }) === "/dt-lane f next"
+    && suggestNext({ ...base, prog, st }) === "/dt-approve 02"
+    && suggestNext({ ...base, prog: normalizeProgress({ ...prog, tickets: { "00": { status: "done" } } }), st: st0 }) === "/dt-lane f"
     && suggestNext({ ...base, prog: normalizeProgress({ ...prog, drift: { merges_since: 2 }, tickets: {} }), st: st0 }) === "/dt-drift f");
   t("ago", ago("2025-10-31T10:00Z", Date.parse("2025-10-31T12:00Z")) === "2h ago" && ago("2025-10-31 11:30", Date.parse("2025-10-31T12:00Z")) === "30m ago" && ago("") === "never");
   const brief = renderBrief({ ...base, prog, st, phase: "build", next: "01: make it green", suggested: "/dt-lane f 01", nowMs: Date.parse("2025-10-31T12:00Z") });
@@ -928,6 +966,8 @@ const HELP = {
     description: `Show (no updates) or update progress.json. Updates replace the old values: it holds the current state, not history.\nLists are replaced by repeating the flag; texts stay under ${MAX_TEXT} characters, lists under ${MAX_ITEMS} items.`,
     options: [
       ["--ticket ID", "Update this ticket instead of the feature"],
+      ["--owner ID", "Session owner; required to update a claimed ticket"],
+      ["--release-claim", "Release your claim after saving a handover (without --ticket: all your claims)"],
       ["--next TEXT", "The next concrete step"],
       ["--blocker TEXT", "A blocker (repeat; replaces the list)"],
       ["--no-blockers", "Clear the blockers"],
@@ -950,9 +990,9 @@ const HELP = {
     options: [["--no-gh", "Skip refreshing PRs and issues from GitHub"]],
   },
   next: {
-    usage: "dt.mjs next <slug> [--ticket ID] [--dry-run]",
+    usage: "dt.mjs next <slug> --owner ID [--ticket ID] [--force] [--dry-run]",
     description: "Pick a ready ticket, enforcing dependencies, unsafe pairs and at most two in flight.\nMonorepo: branch in the current lane. Standalone: create a worktree from the main checkout.\nOn the ticket's branch already: print its saved state to resume from.",
-    options: [["--ticket ID", "Select a specific ticket instead of the first ready ticket"], ["--no-fetch", "Do not fetch the main branch first"], ["--dry-run", "Print Git commands instead of running them"]],
+    options: [["--ticket ID", "Select a specific ticket instead of the first ready ticket"], ["--owner ID", "Session ID claiming this ticket atomically before branching"], ["--force", "Explicit ticket only: take over a claim in its saved checkout; does not stop the old agent"], ["--no-fetch", "Do not fetch the main branch first"], ["--dry-run", "Print Git commands instead of running them"]],
   },
   gate: {
     usage: "dt.mjs gate <slug> <0-4> <approve|change|pending> [options]",

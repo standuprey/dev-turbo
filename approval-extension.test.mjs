@@ -18,7 +18,8 @@ test("Pi runtime: explicit named approvals, cancelled/stale proposals, ticket/dr
 	const session = await jiti.import(join(import.meta.dirname, "extensions/dt-session/index.ts"), { default: true });
 	const approve = await jiti.import(join(import.meta.dirname, "extensions/dt-approve/index.ts"), { default: true });
 	const entries = [], notices = [], messages = [], gateCalls = [], handlers = new Map(), bus = new Map(), tools = new Map();
-	let command, confirmed = true, failGate = false, quickPr = "OPEN";
+	let command, confirmed = true, failGate = false, quickPr = "OPEN", ticketPr = "OPEN", failPr = false, blockedSecond = false;
+	const prChecks = [];
 	const pi = {
 		on(name, fn) { const list = handlers.get(name) || []; list.push(fn); handlers.set(name, list); },
 		events: { on(name, fn) { bus.set(name, fn); }, emit(name, value) { bus.get(name)?.(value); } },
@@ -27,7 +28,15 @@ test("Pi runtime: explicit named approvals, cancelled/stale proposals, ticket/dr
 		registerCommand(name, definition) { assert.equal(name, "dt-approve"); command = definition; },
 		sendMessage(message) { messages.push(message); }, sendUserMessage() { throw new Error("Approvals must not start the model"); },
 		async exec(cmd, args) {
-			if (cmd === "gh") { assert.deepEqual(args.slice(-2), ["--json", "state"]); return { code: 0, stdout: JSON.stringify({ state: quickPr }) }; }
+			if (cmd === "gh") {
+				assert.deepEqual(args.slice(-2), ["--json", "state"]);
+				if (args.includes("--repo")) {
+					assert.equal(args[args.indexOf("--repo") + 1], "test/repo");
+					prChecks.push(args[2]);
+					return failPr ? { code: 1, stderr: "GitHub unavailable" } : { code: 0, stdout: JSON.stringify({ state: blockedSecond && args[2] === "456" ? "OPEN" : ticketPr }) };
+				}
+				return { code: 0, stdout: JSON.stringify({ state: quickPr }) };
+			}
 			if (args[1] === "info") return { code: 0, stdout: JSON.stringify(repo) };
 			assert.equal(args[1], "gate"); assert.equal(args[4], "approve");
 			if (failGate) return { code: 1, stderr: "Simulated approval failure" };
@@ -77,18 +86,36 @@ test("Pi runtime: explicit named approvals, cancelled/stale proposals, ticket/dr
 	await command.handler("slices", ctx);
 	await mkdir(join(repo.featuresBase, "demo", "tickets"));
 	await writeFile(join(repo.featuresBase, "demo", "tickets/00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\n');
-	p = await read(); p.tickets["00"] = { status: "review", acceptance: { state: "pending" }, verification: "Tests and staging passed", prs: [{ state: "open" }] }; await save(p);
+	p = await read(); p.tickets["00"] = { status: "review", acceptance: { state: "pending" }, verification: "Tests and staging passed", prs: [{ number: 123, state: "merged" }, { number: 456, state: "merged" }] }; await save(p);
 	await command.handler("ticket 00", ctx); assert.equal((await read()).tickets["00"].status, "review");
 	p.tickets["00"].prs[0].state = "merged"; await save(p);
 	// Reconfirming slices must not send already merged work back to code review.
 	p.gates.G2 = { state: "pending" }; p.tickets["00"].acceptance = { state: "changes" }; p.next = "/dt-review 00"; await save(p);
 	await command.handler("slices", ctx);
-	assert.ok(messages.at(-1).content.endsWith("- `/dt-final-check 00`"));
+	assert.ok(messages.at(-1).content.endsWith("- `/dt-approve 00`"));
 	assert.equal((await read()).tickets["00"].status, "review");
 	assert.equal((await read()).tickets["00"].acceptance.state, "changes");
 	p = await read(); p.tickets["00"].acceptance = { state: "pending" }; p.next = ""; await save(p);
 	assert.deepEqual((await command.getArgumentCompletions("ticket ")).map((i) => i.value), ["ticket 00"]);
-	await command.handler("ticket 00", ctx); assert.equal((await read()).tickets["00"].status, "done");
+	// Closure ignores stale acceptance evidence but fails closed on every live PR.
+	p.tickets["00"].acceptance = { state: "changes" }; delete p.tickets["00"].verification;
+	p.tickets["00"].blockers = ["staging missing"]; await save(p);
+	const unchanged = await readFile(file, "utf8");
+	for (const state of ["OPEN", "CLOSED", "UNKNOWN"]) {
+		ticketPr = state; await command.handler("00", ctx);
+		assert.equal(await readFile(file, "utf8"), unchanged);
+	}
+	failPr = true; await command.handler("00", ctx); assert.equal(await readFile(file, "utf8"), unchanged); failPr = false;
+	ticketPr = "MERGED"; blockedSecond = true; prChecks.length = 0;
+	await command.handler("00", ctx); assert.deepEqual(prChecks, ["123", "456"]);
+	assert.equal(await readFile(file, "utf8"), unchanged); blockedSecond = false;
+	ctx.ui.confirm = async () => false;
+	const noChecks = prChecks.length; await command.handler("00", ctx); assert.equal(prChecks.length, noChecks);
+	assert.equal(await readFile(file, "utf8"), unchanged); ctx.ui.confirm = async () => true;
+	prChecks.length = 0; await command.handler("00", ctx);
+	assert.deepEqual(prChecks, ["123", "456"]);
+	assert.equal((await read()).tickets["00"].status, "done");
+	const afterDone = gateCalls.length; await command.handler("00", ctx); assert.equal(gateCalls.length, afterDone);
 	p = await read(); p.gates.G4 = { state: "pending", note: "2 findings" }; p.todo = ["drift 1: issue -> spec", "drift 2: issue -> accept"]; await save(p);
 	ctx.ui.select = async () => undefined;
 	await command.handler("drift", ctx); assert.equal((await read()).gates.G4.state, "pending");

@@ -1,6 +1,6 @@
 export const ENTRY = "dt-project";
 export const TYPES = ["web", "device", "service", "cli", "mixed"];
-export const COMMANDS = new Set(["dt-spec", "dt-slice", "dt-amend", "dt-lane", "dt-review", "dt-final-check", "dt-drift", "dt-quick"]);
+export const COMMANDS = new Set(["dt-spec", "dt-slice", "dt-amend", "dt-lane", "dt-review", "dt-drift", "dt-quick"]);
 export const validSlug = (slug) => typeof slug === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
 
 export function restoreProject(branch, repo) {
@@ -34,18 +34,15 @@ export function resolveCommand(text, project) {
 	if ((command === "dt-slice" || (command === "dt-drift" && args !== "apply")) && args) {
 		throw new Error(`Usage: /${command}. Switch projects with /dt-resume.`);
 	}
-	if (["dt-slice", "dt-amend", "dt-lane", "dt-final-check", "dt-drift"].includes(command) && project.tier !== "T2") {
+	if (["dt-slice", "dt-amend", "dt-lane", "dt-drift"].includes(command) && project.tier !== "T2") {
 		throw new Error(`/${command} needs a T2 feature. The selected project is ${project.tier}; use /dt-quick.`);
 	}
 	if (command === "dt-amend" && (!args || /^(?:--?[\w-]+|""|'')$/.test(args))) {
 		throw new Error("Usage: /dt-amend <description of the change>.");
 	}
-	if (command === "dt-final-check" && !/^\d{1,2}$/.test(args)) {
-		throw new Error("Usage: /dt-final-check <ticket ID>. Switch projects with /dt-resume.");
-	}
 	if (command === "dt-lane") {
-		if (args && args !== "next" && !/^\d{1,2}$/.test(args)) throw new Error("Usage: /dt-lane [ticket ID | next]. Switch projects with /dt-resume.");
-		args ||= "next";
+		if (args && args !== "next" && !/^\d{1,2}(?: force)?$/.test(args)) throw new Error("Usage: /dt-lane [ticket ID [force]]. Switch projects with /dt-resume.");
+		if (args === "next") args = ""; // Legacy alias now opens the picker too.
 	}
 	if (command === "dt-review" && /\s/.test(args) && !/^\S+\s+autofix$/.test(args)) {
 		throw new Error("Usage: /dt-review [ticket ID | branch] [autofix]. Switch projects with /dt-resume.");
@@ -56,5 +53,5 @@ export function resolveCommand(text, project) {
 
 // Saved CLI next steps remain usable, but the user sees slugless slash commands.
 export function sessionCommand(text, slug) {
-	return text.replace(/\/dt-accept\b/g, "/dt-final-check").replace(new RegExp(`(/dt-(?:spec|slice|amend|lane|review|final-check|drift|status)) ${slug}(?=\\s|$)`, "g"), "$1").trim();
+	return text.replace(new RegExp(`/(?:dt-final-check|dt-accept) (?:${slug} )?(\\d{1,2})(?=\\s|$)`, "g"), "/dt-approve $1").replace(new RegExp(`(/dt-(?:spec|slice|amend|lane|review|final-check|drift|status)) ${slug}(?=\\s|$)`, "g"), "$1").replace(/\/dt-lane next(?=\s|$)/g, "/dt-lane").trim();
 }
