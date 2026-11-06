@@ -1,5 +1,5 @@
 ---
-description: Start here - grill in rounds, settle scale/ownership/reversibility/verification/non-goals, end with the tier (Gate 0)
+description: Start here - grill in rounds, settle scale/ownership/reversibility/verification/non-goals, end with the tier (Scope)
 argument-hint: "<what you want to build or change>"
 ---
 Grill me on: $@
@@ -32,13 +32,13 @@ If one is not relevant, make me say so in one line ("n/a because ...") instead o
 4. **Verification** - how we will see it works (browser, device over ssh, tests at the module boundary); what needs a human.
 5. **Non-goals** - what we are explicitly not doing.
 
-## Closing block (Gate 0)
+## Closing block (Scope)
 
 When the frontier is empty, post exactly this and nothing else:
 
 **Facts**
 - Task: ...
-- Type: web | device | service | mixed (list the parts)
+- Type: web | device | service | cli | mixed (list the parts)
 - Modules touched: ... (new / public interface changed / internal only)
 - Contract impact: none | changed | new (which)
 - Irreversible parts: none | ...
@@ -65,6 +65,6 @@ When the frontier is empty, post exactly this and nothing else:
 3. Signal 7 = yes and signal 6 = no → **T0**.
 4. Otherwise **T1**. If signal 6 = yes the task is not ready: go back one round and settle the decision.
 
-Proposed: **Tier Tn · Type <type>**. Approve, or override with a reason?
+Proposed: **Tier Tn · Type <type> · Project <slug>**. Propose a short lowercase kebab-case slug. Call `dt_propose_scope` to save the proposal, then end with **Next command: `/dt-approve scope`**. Discussion is for adjustments; a chat yes does not approve.
 
-On my approval run `node ~/.pi/agent/dt/dt.mjs gate <slug> 0 approve --tier Tn --type <type> --note "<task in one line>"` with a short kebab-case slug, show its output, and name the next command: `/dt-spec <slug> <type>` for T2, `/dt-quick <type> as aligned` for T0 and T1. Do not write any other file.
+Only `/dt-approve scope` confirms the proposed name, records Scope approval and selects the project. If I change the scope or name in discussion, update the proposal through `dt_propose_scope` and show the revised card. Never run gate approve yourself. After Scope approval the user runs `/dt-spec` (T2) or `/dt-quick` (T0/T1).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall.sh           remove prompts, dt.mjs and overlays; keep config.json and features/
+# uninstall.sh           remove prompts, dt.mjs, overlays and the dev-turbo extensions; keep config.json and features/
 # uninstall.sh --purge   also remove config.json and features/ (asks first)
 set -euo pipefail
 
@@ -16,9 +16,9 @@ PI="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PROMPTS="$PI/prompts"
 DT="$PI/dt"
 
-rm -f "$PROMPTS"/dt-*.md "$DT"/dt.mjs
-rm -rf "$DT"/overlays
-echo "removed dt-* prompts, dt.mjs and overlays"
+rm -f "$PROMPTS"/dt-*.md "$DT"/dt.mjs "$DT"/AGENTS.md "$DT"/README.md "$PI"/extensions/dt-resume.ts "$PI"/extensions/dt-help.ts
+rm -rf "$DT"/overlays "$PI"/extensions/dt-autocomplete "$PI"/extensions/dt-session "$PI"/extensions/dt-status "$PI"/extensions/dt-approve
+echo "removed dt-* prompts, dt.mjs, installed docs, overlays and the dev-turbo extensions"
 if [ "${1:-}" = "--purge" ]; then
   echo "this will delete $DT (including config.json and features/):"
   ls -d "$DT"/config.json "$DT"/features 2>/dev/null || true
