@@ -2,9 +2,9 @@
 description: T2 - propose new tickets or review existing-ticket changes against the approved spec (stops at Slices)
 argument-hint: ""
 ---
-Slice the approved spec at `<features dir>/$1/spec.md` into tickets (take the features dir from `node ~/.pi/agent/dt/dt.mjs info`). Do not rely on earlier conversation.
+Slice the approved spec at `<features dir>/$1/spec.md` into tickets (take the features dir from `node ~/.pi/agent/dt/dt.mjs info`). The approved spec and saved tickets are authoritative; conversation is not design approval.
 
-If `<features dir>/$1/amendment.md` exists, read it as change intent from `/dt-amend`, not approval. Compare its requested outcome with the current spec and tickets; do not blindly replay changes already reflected there. For a `/dt-slice` route, use the settled proposal to update only affected scopes/dependencies or add follow-ups under the still-approved spec. If its outcome actually changes approved behavior, contracts, data, scale or rollout, stop and hand over to `/dt-spec` rather than slipping that design change into tickets.
+For plan-only changes discussed through `/dt-amend`, use the intended change clarified in this conversation, not approval. If that intent is missing in a fresh session, ask the user to restate it before editing. Compare the outcome with the current spec and tickets; do not blindly replay changes already reflected there. Update only affected scopes/dependencies or add follow-ups under the still-approved spec. If the outcome changes approved behavior, contracts, data, scale or rollout, stop and hand over to `/dt-spec` rather than slipping that design change into tickets. Do not require or create a separate amendment artifact.
 
 **Choose the mode before editing:**
 - **Initial slicing:** no ticket files exist. Create the plan and use the initial-planning card below.

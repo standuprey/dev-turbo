@@ -3,7 +3,7 @@
  *
  * Everything comes from the feature folder (feature.json, spec.md, tickets/, progress.json)
  * through `dt.mjs resume`; nothing depends on an earlier session. The brief is posted in the
- * transcript, then you choose to continue with the saved next step or stop there.
+ * transcript with next commands; no follow-up action picker is shown.
  * Installed by dev-turbo's install.sh into ~/.pi/agent/extensions/.
  */
 import { readFile } from "node:fs/promises";
@@ -113,12 +113,6 @@ export default async function (pi: ExtensionAPI) {
 				commands = nextCommands({ project: { slug, tier: snapshot.feature.tier }, snapshot, branch: ctx.sessionManager.getBranch() }, logic);
 			} catch { /* Status reports a local snapshot gap without inventing a workflow transition. */ }
 			pi.sendMessage({ customType: MESSAGE, content: namedText(sessionCommand(r.brief, slug)) + "\n\n## Next commands\n" + commands.map((c) => "- `" + c + "`").join("\n"), display: true, details: { slug } });
-			if (!ctx.hasUI) return;
-
-			const labels = commands.map((c) => `Put ${c} in the editor`);
-			const choice = await ctx.ui.select(`${slug}: what now?`, [...labels, "Stop here"]);
-			const index = labels.indexOf(choice || "");
-			if (index >= 0) ctx.ui.setEditorText(commands[index]);
 		},
 	});
 }

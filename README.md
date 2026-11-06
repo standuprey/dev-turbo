@@ -8,7 +8,7 @@ Prompt templates, one zero-dependency script and extensions for help, read-only 
 3. Deep modules, one responsibility, one-way dependencies; contracts written as code; one Mermaid notation for every module diagram.
 4. Vertical, testable slices; BDD outer loop (Gherkin per ticket), TDD inner loop.
 5. Fresh context for review; two lanes, never more than 2 tickets in flight; state kept by `dt.mjs`, never hand-edited.
-6. Sessions are disposable: after `/dt-spec`, every step starts from the feature folder and saves its outcome there, so `/dt-resume` can pick up any feature in a new session with a small context.
+6. Workflow proposals and results live in the feature folder, so `/dt-resume` can pick them up in a new session. `/dt-amend` is discussion only; restate an unsaved change when switching sessions.
 
 ## Flow
 
@@ -38,14 +38,14 @@ Start with `/dt-grill <task>`. It saves a Scope proposal. `/dt-approve scope` co
 
 ### Amend a selected T2 project
 
-Use `/dt-amend <description>` to discuss a deliberate change without starting a new project or clearing the selection. It asks a short alignment round about the outcome, preserved behavior, affected tickets, risks and verification. It saves the proposal in `amendment.md`, not in the approved spec or tickets. This is not an approval gate.
+Use `/dt-amend <description>` to discuss a deliberate change without starting a new project or clearing the selection. It asks a short clarification round, then explains whether and how the spec and plan/tickets/slices need amending. This is discussion only, not an approval gate: no artifacts, gate changes or progress writes.
 
 | Alignment result | Next steps |
 |---|---|
 | Approved behavior/design/contracts/data/scale/rollout need to change | `/dt-spec` proposes targeted amendments → `/dt-approve architecture` → `/dt-slice` → `/dt-approve slices`. |
 | The spec remains valid; only ticket scopes, follow-ups or priorities/dependencies change | `/dt-slice` shows affected-ticket changes → `/dt-approve slices`. |
 
-The command records a non-approval gate change only after questions are settled, preventing approval of the superseded plan. It then stops at the chosen `/dt-spec` or `/dt-slice` handoff; no implementation starts. Downstream commands read the saved proposal in a fresh session. Done and merged work stays intact; additional scope becomes follow-up tickets. Deliberate amendments are separate from `/dt-drift`, which compares landed code with the approved architecture.
+The command suggests `/dt-spec` or `/dt-slice` and stops; it does not run either command or start implementation. The downstream command uses the discussion in the same session; in a fresh session, restate the intended change. Done and merged work stays intact; additional scope becomes follow-up tickets. Deliberate amendments are separate from `/dt-drift`, which compares landed code with the approved architecture.
 
 Example: `/dt-amend prioritize isolating v1 code while keeping flag-off behavior and the rollout unchanged`.
 
@@ -99,7 +99,7 @@ When tickets already exist, `/dt-slice` shows a change-review card: current spec
 - `/dt-status`: read-only completion, remaining tickets and blockers; **the next dt-command(s) are shown last**. No model call or remote refresh.
 - `/dt-amend <description>`: mini alignment for a change to the selected T2 project; hands off to `/dt-spec` or `/dt-slice`.
 - `/dt-help`: this guide, without a model call.
-- `/dt-resume [slug]`: select/switch projects; remote refresh failures keep the local selection. It can put the next command in the editor, but does not run it.
+- `/dt-resume [slug]`: select/switch projects; remote refresh failures keep the local selection. It shows next commands in the transcript, without an action picker or editor changes.
 
 Selection survives reloads, reopening and forks of the Pi session. A brand-new session needs resume or a new grill. Starting a new grill clears the old selection. The underlying `dt.mjs` CLI keeps numeric IDs and explicit slugs; those are implementation details, not the user approval flow. See [workflow.md](workflow.md) for the detailed map.
 
@@ -149,7 +149,7 @@ Keep PRs short: a few plain change bullets under `## Description`, then `## Test
 ## Day to day
 - `/dt-help` displays the workflow guide directly, without a model call, repository lookup or state changes.
 - `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` suggests `next` and that project's ticket IDs; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-final-check ` suggests ticket IDs for post-merge acceptance; `/dt-spec ` suggests task types. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
-- New session: open pi in the repository (or a lane) and run `/dt-resume`. Pick a feature; it posts a short brief (phase, gates, board, in-flight tickets with PRs, verification, todo, next step) and offers to continue.
+- New session: open pi in the repository (or a lane) and run `/dt-resume`. Pick a feature; it posts a short brief (phase, gates, board, in-flight tickets with PRs, verification, todo, next step) and lists next commands without a follow-up picker.
 - Monorepo: open pi in clone 1 or clone 2 and run `/dt-lane next`. Feature docs live in `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones; a small local git repo commits every saved state.
 - Standalone: run `/dt-lane next` from the main checkout; it creates `../<repo>.lane-<id>` and tells you to open pi there. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).
 - `/dt-status` displays a saved-state board directly: completed tickets and verification, tickets/slices left, in-flight work, blockers, gates and next steps. It does not call the model, start work, refresh remote facts or write project state. It requires a selected project; it never guesses from a branch or the only feature. Use `/dt-resume` to select or switch projects.

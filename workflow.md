@@ -20,7 +20,7 @@ flowchart LR
   G3 -->|"T2: next ready ticket"| L
   G3 -->|"every 2-3 merges and at the end"| D["/dt-drift<br/>actual vs spec · red edges"]
   D --> G4{"Architecture drift<br/>/dt-approve drift"}
-  AM["/dt-amend description<br/>questions · saved proposal"] -->|"spec/design change"| S
+  AM["/dt-amend description<br/>questions · chat recommendation"] -->|"spec/design change"| S
   AM -->|"ticket-plan change only"| SL
   G4 --> DA["/dt-drift apply<br/>apply approved decisions"]
   DA -->|"spec or scope amendments"| SL
@@ -39,7 +39,7 @@ flowchart LR
 
 The grill saves a Scope proposal. `/dt-approve scope` asks you to confirm the slug, records Scope approval and selects that project. Following slash commands omit the slug: `/dt-spec`, `/dt-slice`, `/dt-lane next`, `/dt-review <id>`, `/dt-drift`, `/dt-status`. The footer shows the selection above the model name. Selection is stored in the Pi session and scoped to the repo/feature directory; reopening, reloading or forking restores it, and session-tree navigation follows the selection on that branch. A new session starts unselected; `/dt-resume [slug]` selects an existing feature. Starting a new grill clears the old selection. Missing selections fail before any workflow prompt reaches the model. The underlying dt.mjs CLI still requires explicit slugs.
 
-The grill, `/dt-amend` alignment rounds and initial `/dt-spec` may rely on the conversation; amendment handoffs carry their decisions in amendment.md. From Gate 1 on, every command starts from the feature folder and saves its outcome there before it stops, hands over, or asks for a decision. In a new session, `/dt-resume` lists the repository's features, refreshes PR and issue states, posts a short brief, and can put the next workflow command into the editor without running it. Context stays small: the brief, then only the ticket, spec sections and code the next step needs.
+The grill, `/dt-amend` clarification rounds and `/dt-spec` may rely on the conversation. `/dt-amend` writes nothing: a fresh session must ask for the intended change if it is not in context. Design proposals go into spec.md and slice proposals into ticket files through their respective commands; other workflow outcomes use saved state. In a new session, `/dt-resume` lists the repository's features, refreshes PR and issue states, posts a short brief, and can put the next workflow command into the editor without running it. Context stays small: the brief, then only the ticket, spec sections and code the next step needs.
 
 ## Gates (your checkpoints)
 
@@ -61,7 +61,7 @@ After 00 acceptance: `/dt-lane next` → `/dt-review <id>` (fix and repeat revie
 
 ### Deliberate amendments
 
-`/dt-amend <description>` keeps the selected T2 project, asks focused questions and saves `amendment.md`. It changes neither implementation nor ticket acceptance. Once aligned, a spec/design change invalidates Architecture and hands off to `/dt-spec`; a ticket-plan-only change invalidates Slices and hands off to `/dt-slice`. These are non-approval changes; the existing named approval gates decide the downstream proposals. This is separate from drift and does not create a new Scope gate.
+`/dt-amend <description>` keeps the selected T2 project, asks focused questions, then explains whether and how the spec and plan/tickets/slices need changing. It creates no artifact and changes no gates, progress, implementation or acceptance. Once clarified, it suggests `/dt-spec` for design changes or `/dt-slice` for plan-only changes and stops. The downstream command uses the chat; in a fresh session, the user restates the intent. Existing named approval gates decide downstream proposals. This is separate from drift and does not create a new Scope gate.
 
 ### Re-slicing an existing plan
 
@@ -92,7 +92,6 @@ Use the format in [AGENTS.md](AGENTS.md):
 <features dir>/<slug>/
   feature.json      identity: tier, type, modality
   spec.md           the approved design; approved amendments edit it in place
-  amendment.md      optional change proposal/questions from /dt-amend, not approval
   tickets/NN-*.md   frontmatter: id, title, kind, blocked_by, touches, verify, unsafe_with
   progress.json     current state, written only by dt.mjs
 ```

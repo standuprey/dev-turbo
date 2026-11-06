@@ -110,6 +110,21 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	await commands.get("dt-resume").handler("catalog", ctx);
 	assert.equal(input("/dt-lane checkout next").action, "handled");
 	assert.equal(input("/dt-lane").text, "/dt-lane catalog next");
+	// UI resume keeps feature selection but never offers actions or changes the editor.
+	ctx.hasUI = true;
+	const selections = [];
+	ctx.ui.select = async (title, labels) => {
+		selections.push(title);
+		assert.equal(title, "Resume which feature?");
+		return labels[0];
+	};
+	ctx.ui.setEditorText = () => { throw new Error("Resume must not change the editor"); };
+	await commands.get("dt-resume").handler("catalog", ctx);
+	assert.deepEqual(selections, []);
+	assert.ok(messages.at(-1).content.includes("## Next commands\n- `/dt-status`"));
+	await commands.get("dt-resume").handler("", ctx);
+	assert.deepEqual(selections, ["Resume which feature?"]);
+	assert.equal(selected().slug, "catalog");
 	// Tree navigation restores the selection at that point, not the latest entry anywhere.
 	entries = saved;
 	handlers.get("session_tree")({}, ctx);

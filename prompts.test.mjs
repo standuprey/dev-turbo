@@ -8,21 +8,25 @@ import { resolveCommand } from "./extensions/dt-session/state.mjs";
 const slice = readFileSync(new URL("./prompts/dt-slice.md", import.meta.url), "utf8");
 const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
 
-test("amend saves an unapproved proposal and routes without implementation", () => {
+test("amend clarifies in chat and suggests a route without artifacts or state changes", () => {
   const amend = readFileSync(new URL("./prompts/dt-amend.md", import.meta.url), "utf8");
   assert.match(amend, /\$\{@:2\}/);
-  assert.match(amend, /amendment\.md/);
   assert.match(amend, /Ask questions before choosing the route/);
-  assert.match(amend, /Route: `\/dt-spec` or `\/dt-slice`/);
+  assert.match(amend, /whether the spec needs changing and how/);
+  assert.match(amend, /whether the plan\/tickets\/slices need changing and how/);
   assert.match(amend, /Do not call dt_propose_scope/);
+  assert.match(amend, /Do not create or update any feature artifact/);
   assert.match(amend, /Do not edit spec\.md or ticket files/);
-  assert.match(amend, /gate \$1 1 change/);
-  assert.match(amend, /gate \$1 2 change/);
+  assert.match(amend, /Do not run dt\.mjs gate or write-mode progress commands/);
+  assert.match(amend, /End with exactly the suggested next command, `\/dt-spec` or `\/dt-slice`/);
+  assert.doesNotMatch(amend, /amendment\.md|gate \$1|--next/);
   const spec = readFileSync(new URL("./prompts/dt-spec.md", import.meta.url), "utf8");
-  assert.match(spec, /amendment\.md/);
+  for (const prompt of [spec, slice]) {
+    assert.doesNotMatch(prompt, /amendment\.md/);
+    assert.match(prompt, /ask the user to restate it before editing/);
+    assert.match(prompt, /not approval/);
+  }
   assert.match(spec, /Preserve unchanged spec sections/);
-  assert.match(slice, /amendment\.md/);
-  assert.match(slice, /not approval/);
 });
 
 test("Pi runtime: amend expands the complete description after the selected slug", { skip: !process.env.PI_PACKAGE_DIR }, async () => {
@@ -42,7 +46,8 @@ test("help shows deliberate amendments separately from architecture drift", () =
   const flow = readme.split("## Flow\n")[1]?.split(/^## /m)[0];
   assert.match(flow, /\/dt-amend <description>/);
   assert.match(flow, /not an approval gate/);
-  assert.match(flow, /amendment\.md/);
+  assert.match(flow, /no artifacts, gate changes or progress writes/);
+  assert.doesNotMatch(flow, /amendment\.md/);
 });
 
 test("merged-ticket final check verifies acceptance without rereview or approval", () => {
