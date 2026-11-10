@@ -26,7 +26,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export default async function (pi: ExtensionAPI) {
 	const load = createModuleLoader(import.meta.url);
 	const { ENTRY, sessionCommand, validSlug } = await load("./dt-session/state.mjs");
-	const { SCOPE, nextCommands, namedText } = await load("./dt-session/gates.mjs");
+	const { SCOPE, nextCommands, nextCommandText, namedText } = await load("./dt-session/gates.mjs");
 	pi.registerMessageRenderer(MESSAGE, (msg, { outputPad }, theme) => {
 		const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
 		box.addChild(new Markdown(String(msg.content), 0, 0, getMarkdownTheme()));
@@ -105,14 +105,14 @@ export default async function (pi: ExtensionAPI) {
 			}
 			r.next = sessionCommand(r.next, slug);
 			r.suggested = sessionCommand(r.suggested, slug);
-			let commands = ["/dt-status"];
+			let commandsText = "Unavailable: could not read the local workflow state.";
 			try {
 				const logic = await load(pathToFileURL(DT).href);
 				const repo = logic.resolveRepo(ctx.cwd);
 				const snapshot = logic.readFeatureStatus(repo, slug);
-				commands = nextCommands({ project: { slug, tier: snapshot.feature.tier }, snapshot, branch: ctx.sessionManager.getBranch() }, logic);
-			} catch { /* Status reports a local snapshot gap without inventing a workflow transition. */ }
-			pi.sendMessage({ customType: MESSAGE, content: namedText(sessionCommand(r.brief, slug)) + "\n\n## Next commands\n" + commands.map((c) => "- `" + c + "`").join("\n"), display: true, details: { slug } });
+				commandsText = nextCommandText(nextCommands({ project: { slug, tier: snapshot.feature.tier }, snapshot, branch: ctx.sessionManager.getBranch() }, logic));
+			} catch { /* Report the snapshot gap without inventing a workflow transition. */ }
+			pi.sendMessage({ customType: MESSAGE, content: namedText(sessionCommand(r.brief, slug)) + "\n\n## Next commands\n" + commandsText, display: true, details: { slug } });
 		},
 	});
 }

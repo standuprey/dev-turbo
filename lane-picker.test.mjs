@@ -20,16 +20,16 @@ test("picker orders available tickets first and labels locked/blocked tickets wi
   const options = laneOptions(snapshot, repo, "here", logic);
   assert.deepEqual(options.map((o) => o.id), ["02", "04", "01", "03"]);
   assert.equal(options[0].selectable, true);
-  assert.match(options[2].label, /LOCKED.*other.*lane 2/);
+  assert.match(options[2].label, /LOCKED.*other.*\/lane2/);
   assert.equal(options[2].selectable, false);
   assert.match(options[3].label, /BLOCKED.*blocked by 01/);
   assert.equal(JSON.stringify(snapshot), before);
 });
 
-test("legacy lane assignments stay locked and own claims can resume", () => {
+test("released lane assignments do not lock and own claims can resume", () => {
   const f = fixture();
   delete f.snapshot.prog.tickets["01"].claim;
-  assert.match(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "01").label, /LOCKED.*lane 2/);
+  assert.equal(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "01").state, "resume");
   f.snapshot.prog.tickets["01"].claim = { owner: "here", checkout: "/lane1" };
   const option = laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "01");
   assert.equal(option.state, "resume");
@@ -43,7 +43,11 @@ test("picker respects gates, resource limits, saved blockers and current branch"
   f.snapshot.prog.gates.G2.state = "approved";
   f.snapshot.prog.tickets["02"] = { status: "review" };
   f.snapshot.st = logic.deriveStatuses(tickets, f.snapshot.prog);
-  assert.match(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "04").label, /BLOCKED.*in flight/);
+  assert.equal(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "04").state, "ready");
+  f.snapshot.tickets = tickets.map((t) => t.id === "04" ? { ...t, touches: ["02"] } : t);
+  assert.match(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "04").label, /BLOCKED.*touches 02/);
+  f.snapshot.tickets = tickets.map((t) => t.id === "04" ? { ...t, unsafe_with: ["02"] } : t);
+  assert.match(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "04").label, /BLOCKED.*unsafe to run with 02/);
   const g = fixture();
   g.snapshot.prog.tickets["04"] = { blockers: ["Human input"] };
   assert.match(laneOptions(g.snapshot, repo, "here", logic).find((o) => o.id === "04").label, /Human input/);

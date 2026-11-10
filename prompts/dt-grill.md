@@ -6,6 +6,12 @@ Grill me on: $@
 
 Start by running `node ~/.pi/agent/dt/dt.mjs info` and keep its output in mind: modality (monorepo or standalone), main branch, where feature docs live, and the `checks` command. If `checks` is unset, ask me for it once at the end and save it with `node ~/.pi/agent/dt/dt.mjs config set checks "<cmd>"`.
 
+## Jira epic (repo-specific, all tiers)
+
+For exactly `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, always ask which **existing Jira epic** this feature belongs to. Ask for its key or URL; do not guess from a branch, silently create an epic, or accept n/a. Use the available Jira tools to verify that it exists and is an Epic. If access fails or the epic is missing, stop and ask for help.
+
+Once the feature slug is settled, save the confirmed key with `node ~/.pi/agent/dt/dt.mjs epic <slug> --key <EPIC-KEY>`. This creates draft `feature.json` metadata with `epic`; it never approves scope or selects a project. This applies to T0/T1 too. On a slug change, save it under the revised slug before proposing scope. Include `Epic: <key>` in Facts. `dt_propose_scope` reads this saved epic and refuses a missing one in these repos. Other repos keep their existing flow.
+
 ## How to grill
 
 Interview me until we reach a shared understanding. Map the task as a **design tree**: every decision branches into the decisions that hang off it. Work it in **rounds**: the frontier is every decision whose prerequisites are settled. Ask the whole frontier in one round, numbered, each with your recommended answer, worded so that "yes" accepts it. Wait for my answers, recompute the frontier, repeat. A question that depends on another one still open belongs to a later round.

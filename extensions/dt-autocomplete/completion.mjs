@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const COMMANDS = new Set(["dt-resume", "dt-spec", "dt-slice", "dt-lane", "dt-review", "dt-drift"]);
+const COMMANDS = new Set(["dt-resume", "dt-spec", "dt-slice", "dt-lane", "dt-show", "dt-review", "dt-drift"]);
 const TYPES = ["web", "device", "service", "cli", "mixed"];
 const VALID_SLUG = /^[\w][\w.-]*$/;
 const safeSlug = (slug) => VALID_SLUG.test(slug) && !slug.includes("..");
@@ -62,7 +62,7 @@ export async function completeArguments(command, args, load, project = null) {
 	}
 	if (!project) return null;
 	if (command === "dt-spec") return match(TYPES.map((value) => ({ value, label: value })), args);
-	if (!["dt-lane", "dt-review"].includes(command)) return null;
+	if (!["dt-lane", "dt-show", "dt-review"].includes(command)) return null;
 	const second = args.match(/^(\S+)([ \t]+)(\S*)$/);
 	if (command === "dt-lane" && project.tier === "T2" && second && /^\d{1,2}$/.test(second[1])) {
 		return match([{ value: "force", label: "force", description: "Take over in the saved checkout; check the previous agent is gone" }], second[3], second[1] + second[2]);

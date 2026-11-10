@@ -103,7 +103,7 @@ test("merged routing preserves gates, partial-merge review and completed tickets
 	assert.deepEqual(nextCommands(view({ G4: { state: "pending" } }, merged), logic), ["/dt-approve drift"]);
 	assert.deepEqual(nextCommands(view({}, { ...merged, prs: [{ state: "merged" }, { state: "open" }] }), logic), ["/dt-review 00"]);
 	assert.deepEqual(nextCommands(view({}, { ...merged, prs: [] }), logic), ["/dt-review 00"]);
-	assert.deepEqual(nextCommands(view({}, { ...merged, status: "done", acceptance: { state: "approved" } }), logic), ["/dt-status"]);
+	assert.deepEqual(nextCommands(view({}, { ...merged, status: "done", acceptance: { state: "approved" } }), logic), []);
 });
 
 test("CLI merged suggestions use internal closure", () => {

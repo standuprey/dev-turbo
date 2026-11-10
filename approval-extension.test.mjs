@@ -12,7 +12,7 @@ test("Pi runtime: explicit named approvals, cancelled/stale proposals, ticket/dr
 	process.env.DT_DIR = dir;
 	t.after(async () => { if (previous === undefined) delete process.env.DT_DIR; else process.env.DT_DIR = previous; await rm(dir, { recursive: true, force: true }); });
 	const repo = { key: "test/repo", featuresBase: join(dir, "features") };
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	const require = createRequire(join(pkg, "package.json")), { createJiti } = require("jiti");
 	const jiti = createJiti(join(pkg, "package.json"), { alias: { "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js"), "@earendil-works/pi-tui": join(pkg, "../pi-tui/dist/index.js"), "@earendil-works/pi-ai": join(pkg, "../pi-ai/dist/compat.js") } });
 	const session = await jiti.import(join(import.meta.dirname, "extensions/dt-session/index.ts"), { default: true });
@@ -25,7 +25,7 @@ test("Pi runtime: explicit named approvals, cancelled/stale proposals, ticket/dr
 		events: { on(name, fn) { bus.set(name, fn); }, emit(name, value) { bus.get(name)?.(value); } },
 		appendEntry(customType, data) { entries.push({ type: "custom", customType, data }); },
 		registerTool(tool) { tools.set(tool.name, tool); }, registerMessageRenderer() {},
-		registerCommand(name, definition) { assert.equal(name, "dt-approve"); command = definition; },
+		registerCommand(name, definition) { if (name === "dt-show") return; assert.equal(name, "dt-approve"); command = definition; },
 		sendMessage(message) { messages.push(message); }, sendUserMessage() { throw new Error("Approvals must not start the model"); },
 		async exec(cmd, args) {
 			if (cmd === "gh") {
@@ -132,5 +132,5 @@ test("Pi runtime: explicit named approvals, cancelled/stale proposals, ticket/dr
 	await command.handler("ticket", ctx); assert.equal(entries.filter((e) => e.customType === QUICK).at(-1).data.state, "pending");
 	quickPr = "MERGED"; await command.handler("ticket", ctx);
 	assert.equal(entries.filter((e) => e.customType === QUICK).at(-1).data.state, "approved");
-	assert.ok(messages.at(-1).content.endsWith("- `/dt-status`"));
+	assert.ok(messages.at(-1).content.endsWith("No next command."));
 });

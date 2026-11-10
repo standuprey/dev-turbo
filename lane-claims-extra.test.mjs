@@ -4,12 +4,12 @@ import * as logic from "./dt.mjs";
 import { nextCommands } from "./extensions/dt-session/gates.mjs";
 
 const ticket = (id, touches = [id]) => ({ id, title: id, touches, blocked_by: [], unsafe_with: [] });
-test("when no spare ticket fits, status does not recommend joining another build", () => {
+test("when no spare ticket fits, suggest the claim-aware lane picker", () => {
   const tickets = [ticket("00"), ticket("01", ["00"])];
   const prog = logic.normalizeProgress({ gates: { G1: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "in_progress", next: "/dt-lane 00" } } });
   const snapshot = { prog, tickets, st: logic.deriveStatuses(tickets, prog) };
-  assert.deepEqual(nextCommands({ project: { slug: "f", tier: "T2" }, snapshot }, logic), ["/dt-status"]);
-  assert.equal(logic.suggestNext({ slug: "f", feature: {}, ...snapshot }), "/dt-status f");
+  assert.deepEqual(nextCommands({ project: { slug: "f", tier: "T2" }, snapshot }, logic), ["/dt-lane"]);
+  assert.equal(logic.suggestNext({ slug: "f", feature: {}, ...snapshot }), "/dt-lane f");
 });
 
 test("claims round-trip through compact state and release remains independent of ticket status", () => {

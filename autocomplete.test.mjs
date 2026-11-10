@@ -14,7 +14,7 @@ test("only resume completes project slugs; unselected workflow commands have no 
 	assert.deepEqual(values(await completeArguments("dt-resume", "ch", load)), ["checkout"]);
 	assert.deepEqual(values(await completeArguments("dt-resume", "", load)), ["checkout", "catalog"]);
 	assert.equal(await completeArguments("dt-resume", "checkout extra", load), null);
-	for (const command of ["dt-status", "dt-spec", "dt-slice", "dt-lane", "dt-review", "dt-drift", "dt-grill", "dt-quick"]) {
+	for (const command of ["dt-status", "dt-spec", "dt-slice", "dt-lane", "dt-show", "dt-review", "dt-drift", "dt-grill", "dt-quick"]) {
 		assert.equal(await completeArguments(command, "", () => { throw new Error("must not load"); }), null);
 	}
 });
@@ -37,6 +37,9 @@ test("selected project's current ticket files supply IDs, titles and next", asyn
 	const items = await completeArguments("dt-lane", "", get, selected);
 	assert.deepEqual(values(items), ["00", "07"]);
 	assert.equal(items[1].description, "Ship checkout");
+	assert.deepEqual(values(await completeArguments("dt-show", "0", get, selected)), ["00", "07"]);
+	assert.equal(await completeArguments("dt-show", "07 force", get, selected), null);
+	assert.equal(await completeArguments("dt-show", "", get, { ...selected, tier: "T1" }), null);
 	assert.deepEqual(values(await completeArguments("dt-review", "0", get, selected)), ["00", "07"]);
 	assert.equal(await completeArguments("dt-final-check", "0", get, selected), null);
 	assert.equal(await completeArguments("dt-final-check", "07 a", get, selected), null);

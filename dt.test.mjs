@@ -149,7 +149,7 @@ test("a feature resumes from its folder alone: gates, progress and briefs", () =
   assert.equal(list[0].slug, "f");
   assert.match(list[0].label, /^f · build · 0\/2 done/);
   const brief = ok("resume", "f", "--no-gh");
-  assert.match(brief, /in flight 1\/2 \(00 review\)/);
+  assert.match(brief, /in flight 1 \(00 review\)/);
   assert.match(brief, /PRs: #12 \(not checked\)/);
   assert.match(brief, /Next:\*\* 00: run the staging check/);
   assert.match(ok("resume", "f", "--no-gh", "--prompt"), /never edit progress.json by hand/);
@@ -161,7 +161,7 @@ test("a feature resumes from its folder alone: gates, progress and briefs", () =
   assert.match(log, /dt: G3 approve ticket 00 f/);
   assert.match(log, /dt: G1 approve f/);
 
-  assert.match(ok("resume", "f", "--no-gh"), /1\/2 done · in flight 0\/2 · ready: 01/);
+  assert.match(ok("resume", "f", "--no-gh"), /1\/2 done · in flight 0 · ready: 01/);
 });
 
 test("existing pure-logic selftest still works", () => {

@@ -23,7 +23,12 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	} });
 	const session = await jiti.import(join(import.meta.dirname, "extensions/dt-session/index.ts"), { default: true });
 	const resume = await jiti.import(join(import.meta.dirname, "extensions/dt-resume.ts"), { default: true });
-	const repo = { key: "org/repo", featuresBase: join(dir, "features") };
+	const repo = { key: "org/repo", featuresBase: join(dir, "features"), root: "/repo" };
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await mkdir(join(repo.featuresBase, "checkout", "tickets"), { recursive: true });
+	await writeFile(join(repo.featuresBase, "checkout", "feature.json"), JSON.stringify({ slug: "checkout", tier: "T2", type: "service" }));
+	await writeFile(join(repo.featuresBase, "checkout", "progress.json"), JSON.stringify({ tickets: {} }));
+	await writeFile(join(repo.featuresBase, "checkout", "tickets", "00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\nTicket content\n');
 	await mkdir(join(repo.featuresBase, "catalog"), { recursive: true });
 	await writeFile(join(repo.featuresBase, "catalog", "feature.json"), JSON.stringify({ slug: "catalog", tier: "T2", type: "web" }));
 	let entries = [];
@@ -68,6 +73,11 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	await handlers.get("session_start")({}, ctx);
 	assert.equal(selected(), null);
 	const input = (text) => handlers.get("input")({ text, source: "interactive" }, ctx);
+	const context = () => {
+		const event = { systemPromptOptions: { sections: {} } };
+		handlers.get("before_agent_start")(event, ctx);
+		return event.systemPromptOptions.sections.dt_project_context;
+	};
 	assert.equal((await input("/dt-lane")).action, "handled");
 	assert.equal(calls.filter((c) => c.args[1] === "gate").length, 0);
 	const tool = tools.get("dt_propose_scope");
@@ -80,7 +90,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	assert.equal(selected().slug, "checkout");
 	assert.equal((await input("/dt-lane 00")).text, "/dt-lane checkout 00");
 	assert.equal((await input("/dt-lane 00 force")).text, "/dt-lane checkout 00 force");
-	assert.match(handlers.get("before_agent_start")({}, ctx).message.content, /Lane claim owner for this session: one/);
+	assert.match(context(), /Lane claim owner for this session: one/);
 	await handlers.get("session_shutdown")({}, ctx);
 	assert.ok(calls.some((c) => c.args.join(" ").includes("progress checkout --release-claim --owner one")));
 	assert.equal((await input("/dt-spec")).text, "/dt-spec checkout service");
@@ -109,7 +119,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	assert.equal(selected().slug, "catalog");
 	assert.ok(messages.at(-1).content.startsWith("Next: /dt-lane"));
 	assert.ok(notices.some(([message]) => message.includes("remote refresh failed")));
-	assert.ok(handlers.get("before_agent_start")({}, ctx).message.content.includes("Selected dev-turbo project: catalog"));
+	assert.ok(context().includes("Selected dev-turbo project: catalog"));
 	eventHandlers.set("dt:project:select", selectionListener);
 	resumeFailure = false;
 	await commands.get("dt-resume").handler("catalog", ctx);
@@ -126,13 +136,13 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	ctx.ui.setEditorText = () => { throw new Error("Resume must not change the editor"); };
 	await commands.get("dt-resume").handler("catalog", ctx);
 	assert.deepEqual(selections, []);
-	assert.ok(messages.at(-1).content.includes("## Next commands\n- `/dt-status`"));
+	assert.ok(messages.at(-1).content.includes("## Next commands\nUnavailable: could not read the local workflow state."));
 	await commands.get("dt-resume").handler("", ctx);
 	assert.deepEqual(selections, ["Resume which feature?"]);
 	assert.equal(selected().slug, "catalog");
 	// Tree navigation restores the selection at that point, not the latest entry anywhere.
 	entries = saved;
-	handlers.get("session_tree")({}, ctx);
+	await handlers.get("session_tree")({}, ctx);
 	assert.equal(selected().slug, "checkout");
 	await input("/dt-grill a different project");
 	assert.equal(selected(), null);
@@ -166,7 +176,7 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	const progress = JSON.stringify({ gates: { G1: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "done", verification: "tests passed" } }, next: "Run acceptance checks" });
 	await writeFile(join(base, "demo", "progress.json"), progress);
 	await writeFile(join(base, "demo", "tickets/00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\n');
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	const require = createRequire(join(piPackage, "package.json"));
 	const { createJiti } = require("jiti");
 	const jiti = createJiti(join(piPackage, "package.json"), { alias: { "@earendil-works/pi-coding-agent": join(piPackage, "dist/index.js"), "@earendil-works/pi-tui": join(piPackage, "../pi-tui/dist/index.js") } });

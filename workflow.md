@@ -13,8 +13,8 @@ flowchart LR
   G2 -->|"existing plan; 00 accepted"| L
   T0 --> SkeletonAcceptance{"Skeleton acceptance<br/>/dt-approve 00"}
   SkeletonAcceptance --> L["/dt-lane ×2<br/>monorepo: clones · standalone: worktrees<br/>BDD red → TDD green → verify → PR"]
-  Q & Q1 & L --> R["/dt-review<br/>3 axes · arch delta · PR comment"]
-  R -->|"findings: fix and re-review"| R
+  Q & Q1 & L --> R["/dt-review<br/>code + architecture · short findings"]
+  R -->|"optional re-review after selected fixes"| R
   R --> M["human merges PRs"]
   M --> G3{"Ticket closure<br/>/dt-approve id"}
   G3 -->|"T2: next ready ticket"| L
@@ -25,7 +25,7 @@ flowchart LR
   G4 --> DA["/dt-drift apply<br/>apply approved decisions"]
   DA -->|"spec or scope amendments"| SL
   DA -->|"unchanged plan; more work"| L
-  DA -->|"all accepted; final drift resolved"| Done["/dt-status<br/>complete"]
+  DA -->|"all accepted; final drift resolved"| Done["complete<br/>no next command"]
   subgraph memory["the only memory between sessions"]
     O["feature folder<br/>feature.json · spec.md · tickets/ · progress.json"]
   end
@@ -53,11 +53,15 @@ The grill, `/dt-amend` clarification rounds and `/dt-spec` may rely on the conve
 
 Ticket 00 is the skeleton. Its acceptance is not an extra gate. Only `/dt-approve` records human approval; discussion revises proposals. No approval command merges a PR or starts implementation. Ticket closure does not claim staging or production acceptance; it requires only saved PR references and successful live merge checks.
 
-Initial-planning and review gate cards have the same general shape: what you approve in ≤ 10 lines, the relevant diagram, the 3 least-sure decisions, up to 5 "look yourself" pointers, and the exact next `/dt-approve` command; questions and changes stay in discussion. The card itself stays in chat; `progress.json` keeps the gate's state (`pending`, `approved`, `changes`) and a one-line note, and design decisions go into `spec.md`.
+Planning and architecture-drift gate cards have the same general shape: what you approve in ≤ 10 lines, the relevant diagram, the 3 least-sure decisions, up to 5 "look yourself" pointers, and the exact next `/dt-approve` command; questions and changes stay in discussion. The card itself stays in chat; `progress.json` keeps the gate's state (`pending`, `approved`, `changes`) and a one-line note, and design decisions go into `spec.md`.
+
+Code review is different: `/dt-review` reads code, suggests actionable improvements in chat and offers to fix user-selected items. It never posts PR reviews, PR comments or ticket comments. Re-review after fixes may be suggested but is optional, not a merge or closure prerequisite. No mandatory diagram, acceptance checklist or verification report. Missing staging/CI/reviewer evidence stays in progress, separate from the code verdict.
 
 ### T2 implementation loop
 
-After 00 acceptance: `/dt-lane` → `/dt-review <id>` (fix and repeat review) → human merge → `/dt-approve <id>` (live merge check and internal closure) → next ready ticket. At most two tickets are in flight. Every 2–3 merges and at the end, take `/dt-drift` → `/dt-approve drift` → `/dt-drift apply`. Changed spec/scopes return through slice alignment and Slices approval; unchanged plans return to the next ready ticket. All tickets accepted plus resolved final drift ends the loop. See the compact diagram and command table in the README's Flow section, also displayed by `/dt-help`.
+`/dt-lane` displays only a short summary of the selected ticket (ID, title and outcome) and requires confirmation before claiming, Jira setup or Git changes, including explicit IDs, resumes and force takeovers. Canceling starts no work and approves no gate. `/dt-show [id]` displays a ticket without starting work; its optional picker includes every ticket. Non-interactive sessions can use `/dt-show <id>`; lane starts require an interactive or RPC confirmation.
+
+After 00 acceptance: `/dt-lane` → `/dt-review <id>` (choose fixes; re-review optional) → human merge → `/dt-approve <id>` (live merge check and internal closure) → next ready ticket. There is no fixed in-flight ticket limit; dependency, shared-touch, unsafe-pair and checkout-ownership checks still apply. Every 2–3 merges and at the end, take `/dt-drift` → `/dt-approve drift` → `/dt-drift apply`. Changed spec/scopes return through slice alignment and Slices approval; unchanged plans return to the next ready ticket. All tickets accepted plus resolved final drift ends the loop. See the compact diagram and command table in the README's Flow section, also displayed by `/dt-help`.
 
 ### Deliberate amendments
 
@@ -75,7 +79,9 @@ After approved drift amendments, `/dt-slice` reviews alignment rather than propo
 | feature docs | `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones, auto-committed to a local git repo | `docs/features/<slug>/` in the main checkout, committed |
 | work items | tickets only: no issues in the monorepo (Jira keys can be recorded with `--issue`) | tickets + feature issue + issue per ticket |
 | GitHub | draft PR per ticket | ready PR per ticket |
-| review | local, posted as a PR comment | same |
+| review | concise findings in chat; offer selected fixes; re-review optional | same |
+
+Ticket progress stores no historical lane assignment. `claim.checkout` protects active work; an optional standalone `worktree` path persists for resume and cleanup. Unclaimed monorepo tickets can resume in any configured clone, subject to checkout, dependency and module checks. `dt.mjs migrate-progress <slug>` removes old lane numbers and moves old absolute paths to `worktree` without changing other state.
 
 ## PR bodies
 

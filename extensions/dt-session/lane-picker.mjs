@@ -12,15 +12,16 @@ export function laneOptions(snapshot, repo, owner, logic) {
     : prog.gates.G2?.state !== "approved" || needsSliceReview(snapshot) ? "Slices approval required"
     : ["pending", "changes"].includes(prog.gates.G4?.state) || prog.drift.merges_since >= 2
       || prog.todo.some((n) => /^drift\s+\d+:/i.test(n)) ? "Architecture drift review/application required" : "";
-  const current = repo.branch?.match(/^ticket\/(.+)-(\d+)$/);
+  const legacy = repo.branch?.match(/^ticket\/(.+)-(\d+)$/);
+  const current = Object.entries(prog.tickets).find(([, t]) => t.branch && t.branch === repo.branch)?.[0] || legacy?.[2]?.padStart(2, "0");
   return tickets.filter((t) => st[t.id].status !== "done").map((t) => {
     const saved = prog.tickets[t.id] || {};
     let state = "blocked", reason = "", selectable = false;
-    const checkout = saved.claim?.checkout || (/^lane \d+$/.test(saved.lane || "") ? repo.lanes?.[Number(saved.lane.slice(5)) - 1] : saved.lane?.startsWith("/") ? saved.lane : "");
+    const checkout = saved.claim?.checkout || (repo.modality === "standalone" ? saved.worktree : "");
     if (saved.claim && saved.claim.owner !== owner) {
-      state = "locked"; reason = `owner ${saved.claim.owner} · ${saved.lane || checkout}`;
+      state = "locked"; reason = `owner ${saved.claim.owner} · ${checkout}`;
     } else if (checkout && real(checkout) !== real(repo.root)) {
-      state = "locked"; reason = `${saved.lane || checkout} · another checkout`;
+      state = "locked"; reason = `${checkout} · another checkout`;
     } else if (ticketMerged(saved)) {
       state = "merged"; reason = `use /dt-approve ${t.id}`;
     } else if (st[t.id].status === "review") {
@@ -28,8 +29,8 @@ export function laneOptions(snapshot, repo, owner, logic) {
     } else if (saved.blockers?.length || prog.blockers.length) {
       reason = (saved.blockers?.length ? saved.blockers : prog.blockers).join(" · ");
     } else if (gateReason) reason = gateReason;
-    else if (current && current[2].padStart(2, "0") !== t.id && st[current[2].padStart(2, "0")]?.status !== "done") {
-      reason = `this checkout is on ticket ${current[2]}; use another lane`;
+    else if (current && current !== t.id && st[current]?.status !== "done" && repo.modality !== "monorepo") {
+      reason = `this checkout is on ticket ${current}; use another lane`;
     } else if (st[t.id].status === "in_progress") {
       state = "resume"; selectable = true;
     } else {
@@ -48,7 +49,7 @@ export async function chooseLane({ project, ctx, loadSnapshot, logic }) {
   }
   const { snapshot, repo } = await loadSnapshot();
   const options = laneOptions(snapshot, repo, ctx.sessionManager.getSessionId(), logic);
-  if (!options.length) { ctx.ui.notify("No remaining tickets. Use /dt-status.", "info"); return null; }
+  if (!options.length) { ctx.ui.notify("No remaining tickets.", "info"); return null; }
   const selected = await ctx.ui.select(`Choose a ticket · ${project.slug}`, options.map((o) => o.label));
   if (!selected) return null;
   const option = options.find((o) => o.label === selected);

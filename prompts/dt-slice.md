@@ -34,12 +34,25 @@ verify: service               # web | device | service | cli - which overlay app
 unsafe_with: []               # tickets that must not run in parallel with this one (shared migration, generated file, lockfile)
 ---
 ```
-Body sections: **Outcome** (what is demoable), **Scenarios** (full declarative Gherkin, 2-5 scenarios, public behavior only), **Out of scope**, **Verification** (exact commands or browser/device steps), **Done when**.
+Body sections: **Outcome** (what is demoable), **Changes**, **Scenarios**, **Out of scope**, **Verification** (exact commands or browser/device steps), **Done when**.
+
+**Changes** is a table: `Change | Purpose`. Use the spec's slice changes, refined only for ticket scope. Each row is one concrete deliverable (code, data, config or rollout step), in plain words. Do not list tests, PR work or generic checks as changes. Keep 1-5 rows; more means the ticket is too large, so split it.
+
+**Scenarios** contain full declarative Gherkin with exactly one scenario per Change row, in the same order. Name each scenario after its change. Its Then proves the row's purpose through public behavior or required operational evidence. A rollout or safety requirement that needs its own check is its own Change row. Do not add scenarios without a matching row.
+
+Example:
+
+```markdown
+| Change | Purpose |
+|---|---|
+| Add nullable `logo_filepath` to brands | Store logo paths without changing existing brands. |
+| Add the orders capture index | Find a store's newest orders without a table scan. |
+```
 
 Rules:
 - A ticket fits one agent context window: roughly one module-boundary crossing, under ~300 lines of change. Split otherwise.
 - Contracts live in ticket 00. A later ticket that needs a contract change is a slicing bug: flag it, do not hide it.
-- At most 2 tickets run at once. Tickets that share `touches`, a migration, a generated file or a lockfile cannot run together: encode that in `touches` and `unsafe_with` (`dt.mjs next` enforces both). Anything shared (schema migration, dependency bump, flag wiring) is its own slice that lands first.
+- The in-flight ticket count is not a blocker; checkout claims still prevent two agents from working in the same checkout. Tickets that share `touches`, a migration, a generated file or a lockfile cannot run together: encode that in `touches` and `unsafe_with` (`dt.mjs next` enforces both). Anything shared (schema migration, dependency bump, flag wiring) is its own slice that lands first.
 - Prefer AFK. HITL only for contract review, UX judgment, real hardware or production.
 - If the spec has scale targets, checking them is explicit: a benchmark, load or soak slice, or a Done-when line on the tickets concerned, scheduled early so a miss changes the design while that is cheap. A target nobody checks is not a target.
 

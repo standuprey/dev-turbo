@@ -6,8 +6,8 @@ Prompt templates, one zero-dependency script and extensions for help, read-only 
 1. Every task starts with a grill; the tier (T0 / T1 / T2) is decided at its end from facts and a fixed rule table, and you approve it through `/dt-approve scope`.
 2. You own the architecture: a gate on modules and contracts before any parallel work, and a drift review every 2-3 merges.
 3. Deep modules, one responsibility, one-way dependencies; contracts written as code; one Mermaid notation for every module diagram.
-4. Vertical, testable slices; BDD outer loop (Gherkin per ticket), TDD inner loop.
-5. Fresh context for review; two lanes, never more than 2 tickets in flight; state kept by `dt.mjs`, never hand-edited.
+4. Vertical, testable slices; each ticket has a `Change | Purpose` table and one Gherkin scenario per change; TDD inner loop.
+5. Fresh context for review; configured lanes, no fixed limit on tickets in flight; state kept by `dt.mjs`, never hand-edited.
 6. Workflow proposals and results live in the feature folder, so `/dt-resume` can pick them up in a new session. `/dt-amend` is discussion only; restate an unsaved change when switching sessions.
 
 ## Flow
@@ -27,12 +27,13 @@ Start with `/dt-grill <task>`. It saves a Scope proposal. `/dt-approve scope` co
 | `/dt-slice` | Propose a new plan, or show only affected-ticket changes when a plan already exists. |
 | `/dt-approve slices` | Approve the slice plan. |
 | `/dt-lane` | Open the ticket picker. On a new plan, choose 00 to build the walking skeleton first. |
-| `/dt-review 00` | Review before merge; discuss and fix findings. |
+| `/dt-review 00` | Review in chat before merge; offer to fix selected findings. Re-review is optional. |
 | `/dt-approve 00` | Check all saved PRs are merged on GitHub, then close the ticket internally. |
-| `/dt-lane` | Choose the next ready ticket in the picker; at most two tickets in flight. |
-| `/dt-lane <id>` | Skip the picker and start/resume that ticket, subject to the same safety checks. |
+| `/dt-lane` | Choose the next ready ticket in the picker; independent work stays ready while other tickets await merge. |
+| `/dt-lane <id>` | Skip the picker, read a short ticket summary and confirm before starting/resuming it. |
+| `/dt-show [id]` | Display the full ticket without starting work; omit the ID to choose any ticket. |
 | `/dt-lane <id> force` | Take over a ticket claim in its saved checkout after checking the previous agent is gone. |
-| `/dt-review <id>` → merge → `/dt-approve <id>` | Repeat pre-merge review, human merge and internal closure for each ticket. |
+| `/dt-review <id>` → merge → `/dt-approve <id>` | Review in chat, choose fixes, then human merge and internal closure. Re-review is optional. |
 | `/dt-drift` | Review architecture drift every 2–3 merges and at the end. |
 | `/dt-approve drift` | Choose code / spec / accept for each finding. |
 | `/dt-drift apply` | Apply those decisions; spec changes lead back to `/dt-slice`. |
@@ -52,7 +53,7 @@ Example: `/dt-amend prioritize isolating v1 code while keeping flag-off behavior
 
 ### T2 implementation loop
 
-After ticket 00 is accepted, repeat this loop. **Repeat for each ready ticket**, with at most two tickets in flight and no shared touches/unsafe pairs.
+After ticket 00 is accepted, repeat this loop. **Repeat for each ready ticket**, with no shared touches/unsafe pairs; the in-flight count is informational, not a blocker.
 
 ```text
 ┌──────┐    ┌───────────────┐    ┌────────────┐    ┌───────────┐    ┌─────┐
@@ -65,7 +66,7 @@ After ticket 00 is accepted, repeat this loop. **Repeat for each ready ticket**,
 | Step | What to do |
 |---|---|
 | Build | `/dt-lane` opens the ticket picker. Choose a ready ticket to build/test. |
-| Review and fix | `/dt-review <id>`; discuss findings, fix them and repeat review until resolved. |
+| Review and fix | `/dt-review <id>` suggests fixes in chat and offers to apply selected items. No PR or ticket comments. Re-review after fixes is optional, not a merge or closure prerequisite. Acceptance evidence stays in progress. |
 | Human merge | You merge every ticket PR. No separate post-merge acceptance check is required. |
 | Close | `/dt-approve <id>` checks live merge states and records completion; then return to `/dt-lane`. |
 
@@ -75,7 +76,7 @@ After ticket 00 is accepted, repeat this loop. **Repeat for each ready ticket**,
 |---|---|
 | No spec/scope changes | Return to `/dt-lane`; complete any recorded code follow-ups before affected ticket acceptance. |
 | Spec or ticket scopes changed | `/dt-slice` shows the alignment delta → `/dt-approve slices` → `/dt-lane`. Preserve done and merged work; do not rebuild an already merged 00. |
-| All tickets accepted and final drift resolved | `/dt-status` confirms completion; there is no next implementation ticket. |
+| All tickets accepted and final drift resolved | No next command; the implementation loop is complete. |
 
 If drift happens while 00 is merged but unaccepted, use `/dt-approve 00` to check live merge states and close it before starting other tickets. Approval never merges a PR or starts the next loop automatically.
 
@@ -92,15 +93,17 @@ Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when
 | **REVIEW** | Use `/dt-review <id>`. |
 | **MERGED** | Use `/dt-approve <id>` to check live merge states and record closure. |
 
-**Canceling changes nothing.** After selection, the agent rechecks safety and claims the ticket atomically before Git operations. If another agent claimed it while the picker was open, starting work is refused.
+**Canceling changes nothing.** After selection, the extension displays a short summary with the ticket ID, title and outcome, then asks whether it is the ticket you want to work on. This also applies to explicit IDs, resumes and force takeovers. Declining or canceling leaves claims, Jira and Git unchanged; the summary remains in the transcript. Use `/dt-show <id>` to read the full ticket. After confirmation, the agent rechecks safety and claims the ticket atomically before Git operations. If another agent claimed it while the picker was open, starting work is refused. Ticket selection confirmation does not approve a workflow gate.
 
-- `/dt-lane <id>` skips the picker, not the safety checks. Non-interactive sessions must supply an ID.
+`/dt-show <id>` displays the full ticket without a model call, remote refresh, claim or Git changes. Bare `/dt-show` opens a read-only picker that includes locked, blocked and accepted tickets. Each picker entry and the full ticket display show the saved ticket status (todo, in progress, review or done).
+
+- `/dt-lane <id>` skips the picker, not ticket confirmation or safety checks. Starting requires an interactive or RPC confirmation dialog; non-interactive sessions can inspect tickets with `/dt-show <id>` but cannot start a lane.
 - `/dt-lane <id> force` explicitly takes over a claim **in its saved checkout**, after you check the previous agent is gone. It does not stop that agent or cancel running commands. Dirty-tree, dependency, module-conflict and two-ticket limits still apply.
 - `/dt-lane next` is a legacy alias for the picker, not an automatic choice. Prefer `/dt-lane`.
 
 Claims in `progress.json` record the Pi session owner, checkout and acquisition time. Another session cannot resume a claim or save ticket progress/PRs with the old owner. Existing lane assignments are respected even for work started before claims were added. In-progress work in another lane is context, not an invitation to join that agent.
 
-Claims do not expire on a timer. A final save with `--release-claim`, or normal session shutdown, releases only that session's claims. A crash may leave a claim that needs explicit force. Release preserves the ticket's in-progress/review state; it is not completion or a new ready ticket.
+Claims do not expire on a timer. A final save with `--release-claim`, or normal session shutdown, releases only that session's claims. In a monorepo checkout, explicitly selecting a different ticket can atomically release the checkout's old claim and acquire the new one, even from the old ticket's branch, when Git has no uncommitted changes and no other local Pi session is using the checkout. The requesting session is excluded using process ancestry; idle peer sessions still block switching. macOS/Linux process inspection also checks concurrent `dt.mjs next` commands and fails closed if inspection is unavailable. This is local CLI detection, not a lock on arbitrary editors, SDK hosts or remote agents. Same-ticket takeovers still require explicit force. Release preserves the old ticket's branch, progress, evidence and review state; dependency, module and checkout checks still apply. Failed setup restores the old claim when no new branch was created.
 
 The session context supplies `--owner <session-ID>` for `dt.mjs next`, ticket progress updates and `pr`. CLI users must supply their own stable owner ID. Direct source edits outside this workflow are not locked. Reload existing sessions when idle to enable claim handling; do not interrupt an agent mid-command.
 
@@ -122,7 +125,7 @@ When tickets already exist, `/dt-slice` shows a change-review card: current spec
 
 ### Any time
 
-- `/dt-status`: read-only completion, remaining tickets and blockers; **the next dt-command(s) are shown last**. No model call or remote refresh.
+- `/dt-status`: read-only completion, remaining tickets and blockers; **the next dt-command(s) are shown last**. No model call or remote refresh. It is never a next step: in-flight work routes to the claim-aware `/dt-lane` picker; completed work shows no next command.
 - `/dt-amend <description>`: mini alignment for a change to the selected T2 project; hands off to `/dt-spec` or `/dt-slice`.
 - `/dt-help`: this command flow, picker labels and ownership rules, without a model call.
 - `/dt-resume [slug]`: select/switch projects; remote refresh failures keep the local selection. It shows next commands in the transcript, without an action picker or editor changes.
@@ -145,16 +148,19 @@ dt.mjs info                               repo, modality, main branch, lanes, fe
 dt.mjs config set checks "<cmd>"          remember the affected-targets command for this repo
 dt.mjs resume [<slug>]                    list features, or a short brief of one (refreshes PRs/issues)
 dt.mjs progress <slug> [--ticket ID] ...  show or update the current state in progress.json
+dt.mjs migrate-progress <slug>            migrate legacy ticket lanes to optional worktree paths
 dt.mjs status <slug>                      kanban + DAG + unsafe pairs
 dt.mjs next <slug> --owner ID [--ticket ID] [--force]   claim a ready ticket, then branch or create a worktree
 dt.mjs gate <slug> <0-4> approve|change|pending   record a gate (+ issues, worktree cleanup, drift nudge)
 dt.mjs pr <slug> <ID> --body-file F | pr quick    open and record the PR (draft in monorepo, ready in standalone)
-dt.mjs comment --body-file F              post review findings on the PR
+dt.mjs comment --body-file F              manually post a PR comment (not used by /dt-review)
 dt.mjs selftest                           test the pure logic
 ```
 `-h` and `--help` work at every command level, including `config set`, `config set checks`, and `pr quick`, without requiring a Git repository or running workflow actions. Running `dt.mjs` without arguments shows the top-level help. Run `node --test *.test.mjs` for the CLI, session-state, footer and autocomplete tests. To include the optional Pi-runtime integration test, set `PI_PACKAGE_DIR` to the installed `@earendil-works/pi-coding-agent` package directory.
 
-`--dry-run` prints the git/gh commands instead of running them, without claiming a ticket. Rules it enforces: max 2 tickets in flight, `blocked_by` done, no shared `touches`, no `unsafe_with` pair, monorepo lanes only in the configured clones, standalone lanes only from the main checkout.
+`--dry-run` prints the git/gh commands instead of running them, without claiming a ticket. Rules it enforces: checkout ownership, `blocked_by` done, no shared `touches`, no `unsafe_with` pair, monorepo lanes only in the configured clones, standalone lanes only from the main checkout.
+
+Tickets no longer save a `lane` field. Active ownership lives in `claim.checkout`; monorepo lane labels come from the current branches in configured clones, not historical assignments. Standalone tickets optionally save an absolute `worktree` path for resume and cleanup after a claim is released (`progress --ticket ID --worktree PATH`). Legacy lane numbers are discarded on read; legacy absolute paths migrate to `worktree`. Run `dt.mjs migrate-progress <slug>` to persist that migration under the progress lock without changing claims, approvals, timestamps or other saved state.
 
 ## Install
 ```
@@ -168,13 +174,15 @@ Then `/reload` in pi. Edit `~/.pi/agent/dt/config.json`: lanes are the two monor
 
 ## Monorepo PR conventions
 
-Prefer lowercase `ov-<jira-number>-<slug>` PR head names, e.g. `ov-715-verify-v2-rest`, and target `master` by default. Split PRs should each contain only their own scope; do not introduce a stack without asking. Preserve published PR URLs instead of recreating drafts for cosmetic naming changes. See [AGENTS.md](AGENTS.md) for the complete preference and the current canonical `ticket/<feature>-<id>` tooling limitation.
+For `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, `/dt-grill` asks for an existing Jira epic and saves its key as `feature.json.epic` (all tiers). After ticket display and confirmation, `/dt-lane` claims first with `next --claim-only`, creates/reuses a Jira ticket under that epic with a title and 3–5 short description bullets, and saves it with `progress --jira-key KEY --jira-description-file FILE`. In monorepo modality, newly created Jira tickets are also assigned to the user, added to the current active sprint and transitioned to In Progress before branching. The agent discovers the user's Jira account, board, active sprint and available transition rather than hard-coding IDs, and verifies all three updates. Ambiguous choices or no active sprint require user input; failed updates keep the saved key for retries and block implementation. Established tickets are not reassigned, moved to a newer sprint or reset on resume; standalone behavior is unchanged. Jira access and parent verification use the agent's available Jira tools; failure blocks implementation. New branches use lowercase snake_case, e.g. `ov_777_update_schema`. Resume, lane display, PRs and cleanup use the saved branch; other repos keep `ticket/<feature>-<id>`. Existing saved branches and published PR URLs are preserved.
 
-Keep PRs short: a few plain change bullets under `## Description`, then `## Testing` starting with `unit tests + staging tests` and one suggested staging check. Mention only real merge prerequisites. Leave test implementation, unfinished work and long verification records out of the body. See [AGENTS.md](AGENTS.md) for the format; `dt.mjs pr` takes a short `--body-file`.
+In monorepo, target `master` by default. Split PRs should each contain only their own scope; do not introduce a stack without asking. See [AGENTS.md](AGENTS.md).
+
+Keep PRs short: a few plain change bullets under `## Description`, then `## Testing` starting with `unit tests + staging tests` and one suggested staging check. Mention only real merge prerequisites. Leave test implementation, unfinished work and long verification records out of the body. In monorepo modality, new ticket PR titles use `<UPPERCASE-TICKET-ID>: <ticket-title>` (the saved Jira key when available), and the Jira browse URL goes immediately below `## Description`, before the change bullets. `dt.mjs pr` adds a missing link without rewriting the supplied description; extra PRs use the same format. Existing published PRs are preserved. See [AGENTS.md](AGENTS.md) for the format; `dt.mjs pr` takes a short `--body-file`.
 
 ## Day to day
 - `/dt-help` displays the workflow guide directly, without a model call, repository lookup or state changes.
-- `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` suggests that project's ticket IDs; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-approve ` suggests ticket IDs for internal closure; `/dt-spec ` suggests task types. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
+- `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` and `/dt-show ` suggest that project's ticket IDs; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-approve ` suggests ticket IDs for internal closure; `/dt-spec ` suggests task types. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
 - New session: open pi in the repository (or a lane) and run `/dt-resume`. Pick a feature; it posts a short brief (phase, gates, board, in-flight tickets with PRs, verification, todo, next step) and lists next commands without a follow-up picker.
 - Monorepo: open pi in clone 1 or clone 2 and run `/dt-lane`, then choose a ready ticket. Locked rows identify work in another session/checkout. Feature docs live in `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones; a small local git repo commits every saved state.
 - Standalone: run `/dt-lane` from the main checkout and choose a ready ticket. After selection, it creates `../<repo>.lane-<id>` and tells you to open pi there; run `/dt-lane <id>` there to resume. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).

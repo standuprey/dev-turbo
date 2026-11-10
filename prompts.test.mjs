@@ -63,10 +63,75 @@ test("final-check is removed and review hands merged work straight to closure", 
   assert.doesNotMatch(review, /\/dt-final-check/);
 });
 
+test("review focuses on actionable code improvements, not acceptance reports", () => {
+  const review = readFileSync(new URL("./prompts/dt-review.md", import.meta.url), "utf8");
+  assert.match(review, /Review the code and architecture and suggest concrete improvements/);
+  assert.match(review, /roughly 200 words/);
+  assert.match(review, /they do not determine the code-review verdict/);
+  assert.match(review, /retain existing unresolved acceptance\/rollout prerequisites/);
+  assert.match(review, /Do not invent findings to fill an axis/);
+  assert.match(review, /No mandatory architecture diagram/);
+  assert.match(review, /Never reproduce the full spec diagram/);
+  assert.match(review, /Do not emit an empty table or offer unnecessary fixes/);
+  assert.doesNotMatch(review, /the spec's module diagram as Mermaid|Write 1-3/);
+});
+
+test("review keeps findings in chat, offers selected fixes and makes re-review optional", () => {
+  const review = readFileSync(new URL("./prompts/dt-review.md", import.meta.url), "utf8");
+  assert.match(review, /Keep all findings in chat/);
+  assert.match(review, /Do not post a PR review, PR comment or ticket comment/);
+  assert.match(review, /do not run `dt\.mjs comment`, `gh pr review`, `gh pr comment` or a remote commenting tool/);
+  assert.doesNotMatch(review, /write.*review to a temp file|node ~\/\.pi\/agent\/dt\/dt\.mjs comment/);
+  assert.match(review, /Would you like me to fix any of these\?/);
+  assert.match(review, /Wait for the user's selection before editing/);
+  assert.match(review, /Only if the user selects findings to fix or the arguments contain "autofix"/);
+  assert.match(review, /before touching code, run `node .* next \$1 --ticket <id> --owner <session-owner>`/);
+  assert.match(review, /if refused or directed to another checkout, STOP/);
+  assert.match(review, /--release-claim/);
+  assert.match(review, /re-review after fixes, but it is optional, never a required checkpoint/);
+  assert.match(review, /Code fixes suggested; re-review optional/);
+  assert.match(review, /do not require another `\/dt-review` invocation/);
+  assert.doesNotMatch(review, /Fresh review required|fix and repeat review/);
+  const quick = readFileSync(new URL("./prompts/dt-quick.md", import.meta.url), "utf8");
+  assert.match(quick, /proposes ticket acceptance only after its verdict is merge/);
+  for (const doc of [readme, readFileSync(new URL("./workflow.md", import.meta.url), "utf8")]) {
+    assert.match(doc, /[Rr]e-review.*optional/);
+    assert.doesNotMatch(doc, /fix and repeat review|Fix findings and repeat review|short PR comment|posted only when actionable/);
+  }
+});
+
+test("implementation and review keep shipped work independent of dev-turbo context", () => {
+  const conventions = readFileSync(new URL("./AGENTS.md", import.meta.url), "utf8");
+  assert.match(conventions, /Code, comments, test names, commit messages and PR titles\/bodies must stand on their own/);
+  assert.match(conventions, /Never reference the dev-turbo plan, spec, tickets, slices or gates/);
+  assert.match(conventions, /Workflow references belong only in dev-turbo planning artifacts, saved progress and command\/gate handovers/);
+  assert.match(conventions, /Reads stored v1 brand configurations/);
+  for (const name of ["dt-lane", "dt-quick"]) {
+    const prompt = readFileSync(new URL(`./prompts/${name}.md`, import.meta.url), "utf8");
+    assert.match(prompt, /Code, comments, test names, commit messages and PR titles\/bodies must stand on their own/);
+    assert.match(prompt, /Never reference the dev-turbo plan, spec, tickets, slices or gates/);
+    assert.match(prompt, /Describe current behavior and technical reasons/);
+  }
+  const review = readFileSync(new URL("./prompts/dt-review.md", import.meta.url), "utf8");
+  assert.match(review, /Flag references to the dev-turbo plan, spec, tickets, slices or gates in shipped code/);
+  assert.match(review, /do not assume readers know the workflow/);
+});
+
 test("slice chooses initial planning or alignment before making changes", () => {
   assert.match(slice, /Choose the mode before editing/);
   assert.match(slice, /capture a before\/after delta/);
   assert.match(slice, /Do not amend the approved spec merely to make tickets fit/);
+});
+
+test("specs and tickets map each concrete change to one scenario", () => {
+  const spec = readFileSync(new URL("./prompts/dt-spec.md", import.meta.url), "utf8");
+  const review = readFileSync(new URL("./prompts/dt-review.md", import.meta.url), "utf8");
+  assert.match(spec, /\*\*Slice changes\*\* - for each slice, a compact `Change \| Purpose` table/);
+  assert.match(slice, /\*\*Changes\*\* is a table: `Change \| Purpose`/);
+  assert.match(slice, /exactly one scenario per Change row, in the same order/);
+  assert.match(slice, /Do not add scenarios without a matching row/);
+  assert.match(review, /Changes table and Gherkin/);
+  assert.match(readme, /one Gherkin scenario per change/);
 });
 
 test("existing-ticket approval presents changes, not the initial plan", () => {

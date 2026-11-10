@@ -8,6 +8,9 @@ Alignment: use the grill session and its Scope block from this conversation. If 
 
 Run `node ~/.pi/agent/dt/dt.mjs info` (main branch, `checks`) and read `~/.pi/agent/dt/overlays/$1.md` (for mixed, read every relevant overlay rather than looking for mixed.md).
 
+## Implementation wording
+Code, comments, test names, commit messages and PR titles/bodies must stand on their own. Never reference the dev-turbo plan, spec, tickets, slices or gates, or assume readers know the workflow. Describe current behavior and technical reasons, not which workflow step introduced something or will finish it. The same rule applies to documentation shipped with the change. Workflow references belong only in dev-turbo planning artifacts, saved progress and command/gate handovers; required issue links and concrete PR sequencing remain allowed.
+
 ## Protocol
 1. Name the module that owns this change in one sentence. If it needs a new module or alters a public contract, STOP and end with `/dt-grill <expanded task>` to revise Scope as T2 before a spec can start. Do not decide contracts on your own.
 2. **T1 Slices approval**: unless the session already has an approved quick `slices` gate, list 2-5 scenario titles and the owning module, call `dt_propose_quick_gate` with gate `slices` and the plan note, then STOP with `/dt-approve slices`. After that approval the user runs `/dt-quick` again to start coding. A chat yes does not approve. T0 skips this plan gate.

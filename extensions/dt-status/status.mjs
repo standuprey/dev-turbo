@@ -1,11 +1,11 @@
 import { sessionCommand } from "../dt-session/state.mjs";
-import { NAMES, namedText, nextCommands, needsSliceReview, quickGate, ticketPending, ticketMerged } from "../dt-session/gates.mjs";
+import { NAMES, namedText, nextCommands, nextCommandText, needsSliceReview, quickGate, ticketPending, ticketMerged } from "../dt-session/gates.mjs";
 
 const text = (v) => namedText(v).replace(/[\r\n\t]/g, " ").replace(/[\x00-\x1f\x7f]/g, "").trim();
 const cell = (v) => text(v).replace(/\|/g, "\\|").replace(/`/g, "'");
 const ids = (tickets) => tickets.map((t) => t.id).join(", ") || "none";
 const gates = ["scope", "architecture", "slices", "drift"];
-const finish = (lines, view, logic) => lines.concat("", "## Next commands", nextCommands(view, logic).map((c) => `- \`${c}\``)).flat().join("\n");
+const finish = (lines, view, logic) => lines.concat("", "## Next commands", nextCommandText(nextCommands(view, logic))).flat().join("\n");
 
 export function renderStatus(project, snapshot, logic, context = {}) {
 	const view = { project, snapshot, branch: [], ...context };
@@ -30,7 +30,7 @@ export function renderStatus(project, snapshot, logic, context = {}) {
 	];
 	if (prog.next || prog.todo.length || prog.blockers.length) {
 		lines.push("", "## Saved context / prerequisites");
-		if (prog.next) lines.push(`- ${note(prog.next)}`);
+		if (prog.next && !/^\/dt-status\b/.test(note(prog.next))) lines.push(`- ${note(prog.next)}`);
 		for (const item of prog.todo) lines.push(`- Todo: ${note(item)}`);
 		for (const item of prog.blockers) lines.push(`- **Blocker:** ${text(item)}`);
 	}
@@ -62,10 +62,10 @@ export function renderStatus(project, snapshot, logic, context = {}) {
 		lines.push("", "## Work in flight");
 		for (const t of active) {
 			const saved = prog.tickets[t.id];
-			lines.push(`- **${t.id} ${text(t.title)}** — ${ticketMerged(saved) ? "PRs merged; recorded acceptance pending" : ticketPending(saved) ? "acceptance pending" : st[t.id].status}${saved.lane ? " · " + text(saved.lane) : ""}`);
+			lines.push(`- **${t.id} ${text(t.title)}** — ${ticketMerged(saved) ? "PRs merged; recorded acceptance pending" : ticketPending(saved) ? "acceptance pending" : st[t.id].status}${saved.worktree ? " · " + text(saved.worktree) : ""}`);
 			if (saved.claim) lines.push(`  - **Claim:** ${text(saved.claim.owner)} · ${text(saved.claim.checkout)} · acquired ${text(saved.claim.acquired)}`);
 			if (saved.verification) lines.push(`  - Saved verification: ${text(saved.verification)}`);
-			if (saved.next && !(ticketMerged(saved) && /^\/dt-(lane|review)\b/.test(note(saved.next)))) lines.push(`  - Saved handover: ${note(saved.next)}`);
+			if (saved.next && !/^\/dt-status\b/.test(note(saved.next)) && !(ticketMerged(saved) && /^\/dt-(lane|review)\b/.test(note(saved.next)))) lines.push(`  - Saved handover: ${note(saved.next)}`);
 			for (const item of saved.todo) lines.push(`  - Todo: ${note(item)}`);
 			for (const item of saved.blockers) lines.push(`  - **Blocker:** ${text(item)}`);
 			if (saved.prs.length) lines.push(`  - Saved PRs: ${saved.prs.map((pr) => `${pr.number ? "#" + pr.number : text(pr.url || "PR")} ${text(pr.state || "unknown")} (checked ${text(pr.checked) || "unknown"})`).join(" · ")}`);

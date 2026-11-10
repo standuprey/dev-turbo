@@ -12,7 +12,7 @@ import { createModuleLoader } from "../dt-session/runtime.ts";
 export default async function (pi: ExtensionAPI) {
 	const load = createModuleLoader(import.meta.url);
 	const { ENTRY, restoreProject } = await load("../dt-session/state.mjs");
-	const { SCOPE, QUICK, NAMES, scopeProposal, pendingGates, findings, approvalPlan, approvalCompletions, nextCommands } = await load("../dt-session/gates.mjs");
+	const { SCOPE, QUICK, NAMES, scopeProposal, pendingGates, findings, approvalPlan, approvalCompletions, nextCommands, nextCommandText } = await load("../dt-session/gates.mjs");
 	const dt = join(process.env.DT_DIR || join(homedir(), ".pi", "agent", "dt"), "dt.mjs");
 	let currentCtx: ExtensionContext | undefined;
 	let busy = false;
@@ -22,6 +22,8 @@ export default async function (pi: ExtensionAPI) {
 		const logic = await load(pathToFileURL(dt).href);
 		const repo = logic.resolveRepo(ctx.cwd), branch = ctx.sessionManager.getBranch();
 		const project = restoreProject(branch, repo), scope = scopeProposal(branch, repo);
+		const scopeFeature = scope && existsSync(join(repo.featuresBase, scope.slug, "feature.json")) ? JSON.parse(await readFile(join(repo.featuresBase, scope.slug, "feature.json"), "utf8")) : null;
+		if (scope && logic.requiresJira(repo.key) && logic.requireEpic(repo, scope.slug) !== scope.epic) throw new Error("The feature epic changed. Run the grill to revise the scope proposal.");
 		const snapshot = project?.tier === "T2" ? logic.readFeatureStatus(repo, project.slug) : null;
 		let revision;
 		if (withRevision) {
@@ -29,7 +31,7 @@ export default async function (pi: ExtensionAPI) {
 			const contents = await Promise.all(files.map(async (file: string) => { try { return await readFile(file, "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw e; } }));
 			revision = createHash("sha256").update(JSON.stringify({ scope, project, contents })).digest("hex");
 		}
-		return { logic, repo, branch, project, scope, snapshot, revision, existingScope: scope ? existsSync(join(repo.featuresBase, scope.slug, "feature.json")) : false };
+		return { logic, repo, branch, project, scope, snapshot, revision, existingScope: Boolean(scopeFeature && (!logic.requiresJira(repo.key) || scopeFeature.tier)) };
 	};
 	const exec = async (command: string, args: string[], ctx: ExtensionContext) => {
 		const r = await pi.exec(command, args, { cwd: ctx.cwd, timeout: 120000 });
@@ -69,7 +71,7 @@ export default async function (pi: ExtensionAPI) {
 				}
 				const plan = approvalPlan(initial, name, rest);
 				const title = plan.ticket ? `Ticket closure ${plan.ticket}` : NAMES[name].label;
-				const extra = name === "scope" ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}` : name === "ticket" ? "\nClose this ticket after checking every saved PR is merged on GitHub. No acceptance checks, code review or rebuild. This never merges PRs." : name === "drift" ? `\nDecisions: ${plan.note}` : "";
+				const extra = name === "scope" ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}${initial.scope?.epic ? `\nEpic: ${initial.scope.epic}` : ""}` : name === "ticket" ? "\nClose this ticket after checking every saved PR is merged on GitHub. No acceptance checks, code review or rebuild. This never merges PRs." : name === "drift" ? `\nDecisions: ${plan.note}` : "";
 				const summary = name === "scope" ? plan.note : plan.quick ? plan.quick.note || "Review the quick-task proposal." : (name === "ticket" ? [initial.snapshot.prog.tickets[plan.ticket]?.verification, ...(initial.snapshot.prog.tickets[plan.ticket]?.todo || [])].filter(Boolean).join("\nChecklist: ") : initial.snapshot.prog.gates[`G${plan.id}`]?.note) || "Review the saved proposal before confirming.";
 				if (!await ctx.ui.confirm(`Approve ${title}?`, `${plan.slug}${extra}\n${summary}`)) return;
 				if (currentCtx?.sessionManager.getSessionId() !== session) throw new Error("Session changed while confirming. No approval was applied.");
@@ -115,7 +117,7 @@ export default async function (pi: ExtensionAPI) {
 					}
 				}
 				const updated = await view(ctx);
-				pi.sendMessage({ customType: "dt-approve", display: true, details: { gate: name, ticket: plan.ticket }, content: `## Approved: ${title}\n\nProject: ${plan.slug}\n\n## Next commands\n${nextCommands(updated, updated.logic).map((c) => `- \`${c}\``).join("\n")}` });
+				pi.sendMessage({ customType: "dt-approve", display: true, details: { gate: name, ticket: plan.ticket }, content: `## Approved: ${title}\n\nProject: ${plan.slug}\n\n## Next commands\n${nextCommandText(nextCommands(updated, updated.logic))}` });
 			} catch (e) { ctx.ui.notify(`dt-approve: ${applied ? "Approval was recorded, but a follow-up failed: " : ""}${e instanceof Error ? e.message : String(e)}`, "error"); }
 			finally {
 				if (lock) { try { await rmdir(lock); } catch { ctx.ui.notify(`Approval lock could not be removed: ${lock}`, "warning"); } }

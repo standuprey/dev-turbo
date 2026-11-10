@@ -42,6 +42,17 @@ function fixture(t) {
   return { lanes, env, dt, ok, progress, feature };
 }
 
+test("a free checkout can start independent work with two tickets awaiting merge", (t) => {
+  const f = fixture(t);
+  for (const id of ["00", "01"]) f.ok(0, "progress", "f", "--ticket", id, "--status", "review");
+  f.ok(0, "next", "f", "--ticket", "02", "--owner", "agent-a");
+  const saved = f.progress().tickets;
+  assert.equal(saved["02"].claim.owner, "agent-a");
+  assert.equal(saved["02"].status, "in_progress");
+  assert.equal(saved["00"].status, "review");
+  assert.equal(saved["01"].status, "review");
+});
+
 test("claims persist, reject another session, fence stale saves, and allow explicit force", (t) => {
   const f = fixture(t);
   f.ok(0, "next", "f", "--ticket", "00", "--owner", "agent-a");
@@ -60,16 +71,60 @@ test("claims persist, reject another session, fence stale saves, and allow expli
   assert.equal(f.progress().tickets["00"].next, "handover");
 });
 
-test("legacy lane ownership, dirty force and failed setup leave state safe", (t) => {
+test("legacy lane numbers do not lock; dirty force leaves state safe", (t) => {
   const f = fixture(t);
-  f.ok(0, "progress", "f", "--ticket", "00", "--status", "in_progress", "--lane", "lane 2");
-  assert.match(f.dt(0, "next", "f", "--ticket", "00", "--owner", "a", "--force").stderr, /checkout/);
+  const file = path.join(f.feature, "progress.json");
+  const raw = f.progress();
+  raw.tickets = { "00": { status: "in_progress", lane: "lane 2" } };
+  fs.writeFileSync(file, JSON.stringify(raw));
+  f.ok(0, "next", "f", "--ticket", "00", "--owner", "a");
+  assert.equal(f.progress().tickets["00"].lane, undefined);
+  assert.equal(f.progress().tickets["00"].worktree, undefined);
+  f.ok(0, "progress", "f", "--ticket", "00", "--owner", "a", "--status", "review", "--release-claim");
   f.ok(0, "next", "f", "--ticket", "01", "--owner", "a");
   const before = fs.readFileSync(path.join(f.feature, "progress.json"), "utf8");
   fs.writeFileSync(path.join(f.lanes[0], "dirty.txt"), "dirty");
   assert.match(f.dt(0, "next", "f", "--ticket", "01", "--owner", "b", "--force").stderr, /not clean/);
   assert.equal(fs.readFileSync(path.join(f.feature, "progress.json"), "utf8"), before);
   fs.unlinkSync(path.join(f.lanes[0], "dirty.txt"));
+});
+
+test("released tickets can resume in another monorepo checkout", (t) => {
+  const f = fixture(t);
+  f.ok(0, "next", "f", "--ticket", "00", "--owner", "a");
+  f.ok(0, "progress", "f", "--ticket", "00", "--owner", "a", "--next", "handover", "--release-claim");
+  const fetch = spawnSync("git", ["fetch", "origin"], { cwd: f.lanes[1], encoding: "utf8" });
+  assert.equal(fetch.status, 0, fetch.stderr);
+  assert.match(f.ok(1, "next", "f", "--ticket", "00", "--owner", "b"), /resume/);
+  const saved = f.progress().tickets["00"];
+  assert.equal(saved.claim.checkout, fs.realpathSync(f.lanes[1]));
+  assert.equal(saved.next, "handover");
+  assert.equal(saved.lane, undefined);
+  assert.equal(saved.worktree, undefined);
+});
+
+test("migration is locked, idempotent and preserves all non-location state", (t) => {
+  const f = fixture(t), file = path.join(f.feature, "progress.json");
+  const raw = f.progress();
+  raw.updated = "original";
+  raw.custom = { retain: true };
+  raw.tickets = {
+    "00": { lane: "lane 2", claim: { owner: "other", checkout: f.lanes[1], acquired: "original" }, verification: "passed", prs: [{ number: 123 }], acceptance: { state: "changes" } },
+    "01": { lane: "/repo.lane-01", next: "resume", todo: ["review"] },
+  };
+  fs.writeFileSync(file, JSON.stringify(raw));
+  const before = fs.readFileSync(file, "utf8");
+  assert.match(f.ok(0, "migrate-progress", "f", "--dry-run"), /would migrate/);
+  assert.equal(fs.readFileSync(file, "utf8"), before);
+  f.ok(0, "migrate-progress", "f");
+  const expected = structuredClone(raw);
+  delete expected.tickets["00"].lane;
+  delete expected.tickets["01"].lane;
+  expected.tickets["01"].worktree = "/repo.lane-01";
+  assert.deepEqual(f.progress(), expected);
+  const migrated = fs.readFileSync(file, "utf8");
+  assert.match(f.ok(0, "migrate-progress", "f"), /already migrated/);
+  assert.equal(fs.readFileSync(file, "utf8"), migrated);
 });
 
 test("setup failure before branch creation rolls reservation back", (t) => {
@@ -79,6 +134,65 @@ test("setup failure before branch creation rolls reservation back", (t) => {
   assert.notEqual(f.dt(0, "next", "f", "--owner", "a").status, 0);
   assert.equal(f.progress().tickets?.["00"]?.claim, undefined);
   assert.notEqual(f.progress().tickets?.["00"]?.status, "in_progress");
+});
+
+test("explicit ticket switch releases only the old claim and preserves its handover", (t) => {
+  const f = fixture(t);
+  f.ok(0, "next", "f", "--ticket", "00", "--owner", "old");
+  f.ok(0, "progress", "f", "--ticket", "00", "--owner", "old", "--status", "review", "--next", "/dt-review 00", "--verification", "passed", "--todo", "review");
+  const before = f.progress().tickets["00"];
+  f.ok(0, "next", "f", "--ticket", "01", "--owner", "new");
+  const { claim, ...saved } = before;
+  assert.deepEqual(f.progress().tickets["00"], saved);
+  assert.equal(f.progress().tickets["01"].claim.owner, "new");
+  assert.match(spawnSync("git", ["branch", "--show-current"], { cwd: f.lanes[0], encoding: "utf8" }).stdout, /ticket\/f-01/);
+});
+
+test("switching from main with a stale checkout claim still respects module conflicts", (t) => {
+  const f = fixture(t);
+  f.ok(0, "next", "f", "--ticket", "00", "--owner", "old");
+  spawnSync("git", ["switch", "main"], { cwd: f.lanes[0] });
+  const file = path.join(f.feature, "tickets", "01.md");
+  const original = fs.readFileSync(file, "utf8");
+  fs.writeFileSync(file, original.replace("module01", "module00"));
+  assert.match(f.dt(0, "next", "f", "--ticket", "01", "--owner", "new").stderr, /already in flight/);
+  assert.equal(f.progress().tickets["00"].claim.owner, "old");
+  fs.writeFileSync(file, original);
+  f.ok(0, "next", "f", "--ticket", "01", "--owner", "new");
+  assert.equal(f.progress().tickets["00"].claim, undefined);
+  f.ok(0, "next", "f", "--ticket", "00", "--owner", "new");
+  assert.equal(f.progress().tickets["01"].claim, undefined);
+  assert.equal(f.progress().tickets["00"].claim.owner, "new");
+});
+
+test("dirty checkout and another live pi session refuse a switch without changing state", async (t) => {
+  const f = fixture(t);
+  f.ok(0, "next", "f", "--ticket", "00", "--owner", "old");
+  const before = fs.readFileSync(path.join(f.feature, "progress.json"), "utf8");
+  fs.writeFileSync(path.join(f.lanes[0], "dirty"), "dirty");
+  assert.match(f.dt(0, "next", "f", "--ticket", "01", "--owner", "new").stderr, /not clean/);
+  fs.unlinkSync(path.join(f.lanes[0], "dirty"));
+  const peer = spawn(process.execPath, ["-e", "process.title = 'pi'; console.log('ready'); setInterval(() => {}, 1000)"], { cwd: f.lanes[0] });
+  t.after(() => peer.kill());
+  await new Promise((resolve) => peer.stdout.once("data", resolve));
+  assert.match(f.dt(0, "next", "f", "--ticket", "01", "--owner", "new").stderr, /active session/);
+  assert.equal(fs.readFileSync(path.join(f.feature, "progress.json"), "utf8"), before);
+  peer.kill();
+  await new Promise((resolve) => peer.once("close", resolve));
+  f.ok(0, "next", "f", "--ticket", "01", "--owner", "new", "--claim-only");
+  assert.equal(f.progress().tickets["00"].claim, undefined);
+});
+
+test("failed switch setup restores the released claim", (t) => {
+  const f = fixture(t);
+  f.ok(0, "next", "f", "--ticket", "00", "--owner", "old");
+  const before = f.progress().tickets["00"];
+  spawnSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], { cwd: f.lanes[0] });
+  spawnSync("git", ["update-ref", "-d", "refs/remotes/origin/main"], { cwd: f.lanes[0] });
+  const result = f.dt(0, "next", "f", "--ticket", "01", "--owner", "new");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /git switch/);
+  assert.deepEqual(f.progress().tickets["00"], before);
 });
 
 test("two agents in one checkout cannot reserve different tickets", async (t) => {
@@ -101,5 +215,8 @@ test("two lanes reserve distinct tickets atomically", async (t) => {
   const results = await Promise.all([run(0, "a"), run(1, "b")]);
   for (const r of results) assert.equal(r.code, 0, r.stderr);
   assert.deepEqual(Object.values(f.progress().tickets).map((s) => s.claim.owner).sort(), ["a", "b"]);
-  assert.match(f.dt(0, "next", "f", "--ticket", "02", "--owner", "a", "--force").stderr, /finish it|in flight/);
+  const otherLane = Object.values(f.progress().tickets).find((saved) => saved.claim.owner === "b");
+  f.ok(0, "next", "f", "--ticket", "02", "--owner", "a");
+  assert.deepEqual(Object.values(f.progress().tickets).find((saved) => saved.claim?.owner === "b"), otherLane);
+  assert.equal(f.progress().tickets["02"].claim.owner, "a");
 });

@@ -55,7 +55,7 @@ test("saved merged PRs do not mark a review ticket done or skip acceptance", asy
 	assert.ok(output.includes("| 01 | First slice | blocked by 00 |"));
 });
 
-test("ready list respects gate decisions, in-flight limits and resource conflicts", async (t) => {
+test("ready list respects gates and blockers without an in-flight count limit", async (t) => {
 	const f = await fixture(t, { gates: { G1: { state: "approved" }, G2: { state: "pending", note: "Review slices" } }, tickets: { "00": { status: "done" } } });
 	let output = renderStatus(f.project, logic.readFeatureStatus(f.repo, "demo"), logic);
 	assert.ok(output.includes("waiting for Architecture / Slices approval"));
@@ -64,8 +64,9 @@ test("ready list respects gate decisions, in-flight limits and resource conflict
 	await f.ticket("02", "Independent slice");
 	await writeFile(join(f.dir, "progress.json"), JSON.stringify(progress));
 	output = renderStatus(f.project, logic.readFeatureStatus(f.repo, "demo"), logic);
-	assert.ok(output.includes("2 tickets already in flight"));
-	assert.ok(output.includes("Ready by saved gate/dependency/resource checks: none"));
+	assert.ok(output.includes("| 02 | Independent slice | ready |"));
+	assert.ok(output.includes("Ready by saved gate/dependency/resource checks: 02"));
+	assert.ok(!output.includes("merge one first"));
 	progress.tickets["00"].status = "done";
 	progress.tickets["02"] = { blockers: ["Needs a scope decision"] };
 	await writeFile(join(f.dir, "progress.json"), JSON.stringify(progress));

@@ -21,11 +21,12 @@ export function usageTotals(entries) {
 
 export function createProjectFooter(ctx, pi, theme, data, tui, getProject, format) {
 	const unsubscribe = data.onBranchChange(() => tui.requestRender());
-	let cache;
+	let cache, contextCache;
 	const token = (n) => n < 1000 ? String(n) : n < 10000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`;
 	return {
 		dispose: unsubscribe,
-		invalidate() { cache = undefined; },
+		// These caches contain no styled text; a theme or layout change cannot stale them.
+		invalidate() {},
 		render(width) {
 			const manager = ctx.sessionManager;
 			const key = `${manager.getSessionId()}:${manager.getLeafId()}:${manager.getEntryCount()}`;
@@ -46,7 +47,10 @@ export function createProjectFooter(ctx, pi, theme, data, tui, getProject, forma
 			}
 			const subscription = ctx.model && (ctx.model.provider === "kimi-coding" || ctx.modelRegistry.isUsingOAuth(ctx.model));
 			if (totals.cost || subscription) parts.push(`$${totals.cost.toFixed(3)}${subscription ? " (sub)" : ""}`);
-			const usage = ctx.getContextUsage();
+			if (contextCache?.key !== key || contextCache.model !== ctx.model || contextCache.window !== ctx.model?.contextWindow) {
+				contextCache = { key, model: ctx.model, window: ctx.model?.contextWindow, usage: ctx.getContextUsage() };
+			}
+			const usage = contextCache.usage;
 			parts.push(`${usage?.percent == null ? "?" : usage.percent.toFixed(1) + "%"}/${token(usage?.contextWindow || ctx.model?.contextWindow || 0)}`);
 			let model = ctx.model?.id || "no-model";
 			if (ctx.model?.reasoning) model += ` • ${pi.getThinkingLevel() || "off"}`;

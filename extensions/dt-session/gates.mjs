@@ -62,7 +62,7 @@ export function pendingGates(view) {
 }
 export function approvalPlan(view, name, args) {
 	if (!Object.hasOwn(NAMES, name)) throw new Error("Usage: /dt-approve scope|architecture|slices|ticket|drift [ticket ID or decisions].");
-	if (!(name === "ticket" && view.project?.tier === "T2") && !pendingGates(view).includes(name)) throw new Error(`${NAMES[name].label} is not awaiting approval. Use /dt-status to see the next command.`);
+	if (!(name === "ticket" && view.project?.tier === "T2") && !pendingGates(view).includes(name)) throw new Error(`${NAMES[name].label} is not awaiting approval.`);
 	if (name === "scope") {
 		if (/^--?[\w-]+$/.test(view.scope.note.trim())) throw new Error("Use a descriptive task summary, not a standalone command-line flag.");
 		if (view.existingScope) throw new Error("That project already exists. Use /dt-resume to select it, or discuss a new name before Scope approval.");
@@ -77,8 +77,8 @@ export function approvalPlan(view, name, args) {
 	if (name === "ticket") {
 		if (args.length !== 1 || !/^\d{1,2}$/.test(args[0])) throw new Error("Usage: /dt-approve ticket <ID>.");
 		const id = args[0].padStart(2, "0"), saved = snapshot.prog.tickets[id];
-		if (!snapshot.tickets.some((t) => t.id === id)) throw new Error(`Unknown ticket ${id}. Use /dt-status.`);
-		if (saved?.status === "done") throw new Error(`Ticket ${id} is already done. Use /dt-status.`);
+		if (!snapshot.tickets.some((t) => t.id === id)) throw new Error(`Unknown ticket ${id}.`);
+		if (saved?.status === "done") throw new Error(`Ticket ${id} is already done.`);
 		if (!saved?.prs?.length) throw new Error(`No PRs are saved for ticket ${id}. Save its PRs before closing it.`);
 		return { name, revision: view.revision, slug: view.project.slug, id: 3, ticket: id, note: "Ticket closed through /dt-approve after live merge checks" };
 	}
@@ -105,6 +105,9 @@ export function approvalCompletions(view, prefix) {
 export function namedText(value) {
 	return String(value || "").replace(/Gate\s*2b|G2b/g, "ticket 00 acceptance").replace(/Gate\s*([0-4])|\bG([0-4])\b/g, (_, a, b) => Object.values(NAMES).find((g) => g.id === Number(a ?? b)).label);
 }
+export function nextCommandText(commands) {
+	return commands.length ? commands.map((c) => `- \`${c}\``).join("\n") : "No next command.";
+}
 // Machine state, not guesses from prose. Spec-amending drift requires a new slice review.
 export function nextCommands(view, logic) {
 	if (view.scope) return ["/dt-approve scope"];
@@ -113,7 +116,7 @@ export function nextCommands(view, logic) {
 		const pending = pendingGates(view);
 		if (pending.length) return [`/dt-approve ${pending[0]}`];
 		if (quickGate(view.branch, view.project, "review")?.state === "pending") return ["/dt-review"];
-		if (quickGate(view.branch, view.project, "ticket")?.state === "approved") return ["/dt-status"];
+		if (quickGate(view.branch, view.project, "ticket")?.state === "approved") return [];
 		return ["/dt-quick"];
 	}
 	const { snapshot: s } = view, g = s.prog.gates;
@@ -139,11 +142,11 @@ export function nextCommands(view, logic) {
 	}
 	const awaiting = s.tickets.filter((t) => ticketPending(s.prog.tickets[t.id]));
 	if (awaiting.length) return awaiting.map((t) => `/dt-approve ${t.id}`);
-	// Status is shared by lanes. Never turn another agent's build into a resume command.
+	// The picker checks claims/checkout before selection; never name another agent's build.
 	try { logic.pickReady(s.tickets, s.st); return ["/dt-lane"]; } catch { /* no runnable tickets */ }
 	const review = s.tickets.filter((t) => s.st[t.id].status === "review");
 	if (review.length) return review.map((t) => `/dt-review ${t.id}`);
-	if (s.tickets.some((t) => s.st[t.id].status === "in_progress")) return ["/dt-status"];
-	if (s.tickets.length && s.tickets.every((t) => s.st[t.id].status === "done")) return [s.prog.drift.merges_since > 0 ? "/dt-drift" : "/dt-status"];
+	if (s.tickets.some((t) => s.st[t.id].status === "in_progress")) return ["/dt-lane"];
+	if (s.tickets.length && s.tickets.every((t) => s.st[t.id].status === "done")) return s.prog.drift.merges_since > 0 ? ["/dt-drift"] : [];
 	return ["/dt-slice"];
 }
