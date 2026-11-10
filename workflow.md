@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  G["/dt-grill<br/>rounds · 5 topics · signal table"] --> G0{"Scope<br/>/dt-approve scope"}
+  G["/dt-start<br/>rounds · 5 topics · signal table"] --> G0{"Scope<br/>/dt-approve scope"}
   G0 -->|T0| Q["/dt-quick<br/>current checkout · quick/* branch"]
   G0 -->|T1| Q1["/dt-quick<br/>+ light gate: scenarios & owner"]
   G0 -->|T2| S["/dt-spec<br/>module map · contracts · diagram · critique"]

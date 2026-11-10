@@ -111,7 +111,7 @@ export function nextCommandText(commands) {
 // Machine state, not guesses from prose. Spec-amending drift requires a new slice review.
 export function nextCommands(view, logic) {
 	if (view.scope) return ["/dt-approve scope"];
-	if (!view.project) return ["/dt-resume", "/dt-grill <task>"];
+	if (!view.project) return ["/dt-resume", "/dt-start <task>"];
 	if (view.project.tier !== "T2") {
 		const pending = pendingGates(view);
 		if (pending.length) return [`/dt-approve ${pending[0]}`];

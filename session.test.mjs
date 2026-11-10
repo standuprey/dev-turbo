@@ -27,7 +27,7 @@ test("workflow commands fail before expansion if no project is selected", () => 
 		assert.throws(() => resolveCommand(`/dt-${command}`, null), /No dev-turbo project selected/);
 		assert.throws(() => resolveCommand(`/dt-${command} checkout`, null), /No dev-turbo project selected/);
 	}
-	for (const text of ["/dt-help", "/dt-status", "/dt-resume checkout", "/dt-grill a task", "normal input", "/other"]) {
+	for (const text of ["/dt-help", "/dt-status", "/dt-resume checkout", "/dt-start a task", "normal input", "/other"]) {
 		assert.equal(resolveCommand(text, null), null);
 	}
 });

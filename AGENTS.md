@@ -2,7 +2,7 @@
 
 User preference for `csscompany-enterprise/monorepo`:
 
-- For `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, every feature must have a confirmed Jira epic saved as `feature.json.epic` during `/dt-grill`, including T0/T1.
+- For `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, every feature must have a confirmed Jira epic saved as `feature.json.epic` during `/dt-start`, including T0/T1.
 - In `/dt-lane`, claim first, then create/reuse a Jira ticket under that epic with a title and 3–5 short description bullets. Save its metadata in ticket progress before branching or implementing. In monorepo modality, newly created Jira tickets must also be assigned to the user, added to the current active sprint and transitioned to In Progress, with all three verified before branching. Resolve the user, board, sprint and transition through Jira; ask when ambiguous or no active sprint exists. Save the Jira key before these updates so failures can retry without duplicates. Do not change the assignee, sprint or status of established tickets on resume; standalone behavior is unchanged.
 - New branches in those two repos use the Jira key followed by a title slug, all lowercase snake_case: `OV-777` + `Update schema` → `ov_777_update_schema`. No slash prefix, uppercase letters or hyphens.
 - Target `master` by default. When work is split into multiple PRs, isolate each PR's own commits onto `master`; do not silently turn them into a stack to satisfy build dependencies or CI tooling.

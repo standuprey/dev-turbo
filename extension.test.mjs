@@ -144,7 +144,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	entries = saved;
 	await handlers.get("session_tree")({}, ctx);
 	assert.equal(selected().slug, "checkout");
-	await input("/dt-grill a different project");
+	await input("/dt-start a different project");
 	assert.equal(selected(), null);
 	assert.equal((await input("/dt-review")).action, "handled");
 	assert.ok(notices.length);

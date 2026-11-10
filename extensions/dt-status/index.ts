@@ -30,7 +30,7 @@ export default async function (pi: ExtensionAPI) {
 			const selected = [...branch].reverse().find((e) => e.type === "custom" && e.customType === ENTRY);
 			const pendingScope = [...branch].reverse().find((e) => e.type === "custom" && e.customType === SCOPE);
 			if ((!selected || !("data" in selected) || !selected.data) && (!pendingScope || !("data" in pendingScope) || !pendingScope.data)) {
-				ctx.ui.notify("No dev-turbo project selected. Run /dt-resume [slug], or /dt-grill and confirm Gate 0 + the slug.", "warning");
+				ctx.ui.notify("No dev-turbo project selected. Run /dt-resume [slug], or /dt-start and confirm Gate 0 + the slug.", "warning");
 				return;
 			}
 			try {

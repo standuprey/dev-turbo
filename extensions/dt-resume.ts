@@ -54,7 +54,7 @@ export default async function (pi: ExtensionAPI) {
 				return;
 			}
 			if (!features.length) {
-				ctx.ui.notify("No dev-turbo features for this repository yet: start with /dt-grill.", "info");
+				ctx.ui.notify("No dev-turbo features for this repository yet: start with /dt-start.", "info");
 				return;
 			}
 

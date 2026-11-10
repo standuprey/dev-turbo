@@ -160,7 +160,7 @@ test("Pi runtime: idle sessions stay dormant and active input reuses state witho
   assert.equal(statuses, 0);
   assert.equal((await input("/dt-lane")).action, "handled");
   assert.equal(processes, 0);
-  await input("/dt-grill a task");
+  await input("/dt-start a task");
   assert.match(before(), /Lane claim owner for this session: one/);
   assert.equal(processes, 0);
   // Restoring an unfinished conversation uses its stored activation marker.

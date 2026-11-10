@@ -16,8 +16,8 @@ EXTENSIONS="$PI/extensions"
 command -v node >/dev/null || { echo "node 18+ is required"; exit 1; }
 mkdir -p "$PROMPTS" "$DT/overlays" "$DT/features" "$EXTENSIONS"
 cp "$KIT"/prompts/dt-*.md "$PROMPTS"/
-# Remove obsolete prompts when upgrading: ticket closure is handled by dt-approve.
-rm -f "$PROMPTS/dt-status.md" "$PROMPTS/dt-accept.md" "$PROMPTS/dt-final-check.md"
+# Remove obsolete prompts when upgrading: dt-start replaces dt-grill; ticket closure is handled by dt-approve.
+rm -f "$PROMPTS/dt-grill.md" "$PROMPTS/dt-status.md" "$PROMPTS/dt-accept.md" "$PROMPTS/dt-final-check.md"
 cp "$KIT"/dt.mjs "$KIT"/checkout-sessions.mjs "$DT"/
 cp "$KIT"/AGENTS.md "$DT"/AGENTS.md
 cp "$KIT"/README.md "$DT"/README.md
@@ -39,4 +39,4 @@ fi
 node "$DT/dt.mjs" selftest
 echo "installed $(ls "$KIT"/prompts/dt-*.md | wc -l | tr -d ' ') prompts -> $PROMPTS; dt.mjs + docs + overlays -> $DT; help + status + approve + resume + session + autocomplete -> $EXTENSIONS"
 command -v gh >/dev/null || echo "note: gh is not installed; issues, PRs and review comments will not work"
-echo "now: /reload in pi, then /dt-help for the flow, /dt-grill <task> to start, or /dt-resume to pick up a feature"
+echo "now: /reload in pi, then /dt-help for the flow, /dt-start <task> to start, or /dt-resume to pick up a feature"

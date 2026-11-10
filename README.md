@@ -14,13 +14,13 @@ Prompt templates, one zero-dependency script and extensions for help, read-only 
 
 **Move forward with a dt-command.** Discussion is for questions and adjustments; a chat “yes” never records approval. Every gate card ends with the exact next command.
 
-Start with `/dt-grill <task>`. It saves a Scope proposal. `/dt-approve scope` confirms the project name, records approval and selects it. Following commands omit the slug. In a new session, `/dt-resume [slug]` selects an existing project; the footer shows its name.
+Start with `/dt-start <task>`. It saves a Scope proposal. `/dt-approve scope` confirms the project name, records approval and selects it. Following commands omit the slug. In a new session, `/dt-resume [slug]` selects an existing project; the footer shows its name.
 
 ### Full feature flow (T2)
 
 | Command | What happens |
 |---|---|
-| `/dt-grill <task>` | Discuss scope, risks and decisions. |
+| `/dt-start <task>` | Discuss scope, risks and decisions. |
 | `/dt-approve scope` | Approve task, tier, type and project name. |
 | `/dt-spec` | Propose modules, contracts and architecture. |
 | `/dt-approve architecture` | Approve the design. |
@@ -119,7 +119,7 @@ When tickets already exist, `/dt-slice` shows a change-review card: current spec
 
 ### Small tasks (T0 / T1)
 
-- T0: `/dt-grill` → `/dt-approve scope` → `/dt-quick` → `/dt-review` if needed → `/dt-approve ticket`.
+- T0: `/dt-start` → `/dt-approve scope` → `/dt-quick` → `/dt-review` if needed → `/dt-approve ticket`.
 - T1 adds a scenario-plan checkpoint: `/dt-quick` → `/dt-approve slices` → `/dt-quick` to build.
 - You merge the quick PR before `/dt-approve ticket`.
 
@@ -174,7 +174,7 @@ Then `/reload` in pi. Edit `~/.pi/agent/dt/config.json`: lanes are the two monor
 
 ## Monorepo PR conventions
 
-For `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, `/dt-grill` asks for an existing Jira epic and saves its key as `feature.json.epic` (all tiers). After ticket display and confirmation, `/dt-lane` claims first with `next --claim-only`, creates/reuses a Jira ticket under that epic with a title and 3–5 short description bullets, and saves it with `progress --jira-key KEY --jira-description-file FILE`. In monorepo modality, newly created Jira tickets are also assigned to the user, added to the current active sprint and transitioned to In Progress before branching. The agent discovers the user's Jira account, board, active sprint and available transition rather than hard-coding IDs, and verifies all three updates. Ambiguous choices or no active sprint require user input; failed updates keep the saved key for retries and block implementation. Established tickets are not reassigned, moved to a newer sprint or reset on resume; standalone behavior is unchanged. Jira access and parent verification use the agent's available Jira tools; failure blocks implementation. New branches use lowercase snake_case, e.g. `ov_777_update_schema`. Resume, lane display, PRs and cleanup use the saved branch; other repos keep `ticket/<feature>-<id>`. Existing saved branches and published PR URLs are preserved.
+For `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, `/dt-start` asks for an existing Jira epic and saves its key as `feature.json.epic` (all tiers). After ticket display and confirmation, `/dt-lane` claims first with `next --claim-only`, creates/reuses a Jira ticket under that epic with a title and 3–5 short description bullets, and saves it with `progress --jira-key KEY --jira-description-file FILE`. In monorepo modality, newly created Jira tickets are also assigned to the user, added to the current active sprint and transitioned to In Progress before branching. The agent discovers the user's Jira account, board, active sprint and available transition rather than hard-coding IDs, and verifies all three updates. Ambiguous choices or no active sprint require user input; failed updates keep the saved key for retries and block implementation. Established tickets are not reassigned, moved to a newer sprint or reset on resume; standalone behavior is unchanged. Jira access and parent verification use the agent's available Jira tools; failure blocks implementation. New branches use lowercase snake_case, e.g. `ov_777_update_schema`. Resume, lane display, PRs and cleanup use the saved branch; other repos keep `ticket/<feature>-<id>`. Existing saved branches and published PR URLs are preserved.
 
 In monorepo, target `master` by default. Split PRs should each contain only their own scope; do not introduce a stack without asking. See [AGENTS.md](AGENTS.md).
 

@@ -16,7 +16,7 @@ export function restoreProject(branch, repo) {
 export function resolveCommand(text, project) {
 	const parsed = text.match(/^\/(dt-[\w-]+)(?:\s+([\s\S]*))?$/);
 	if (!parsed || !COMMANDS.has(parsed[1])) return null;
-	if (!project) throw new Error("No dev-turbo project selected. Run /dt-resume [slug], or /dt-grill <task> and confirm Gate 0 + the slug.");
+	if (!project) throw new Error("No dev-turbo project selected. Run /dt-resume [slug], or /dt-start <task> and confirm Gate 0 + the slug.");
 	const command = parsed[1];
 	let args = (parsed[2] || "").trim();
 	const strip = (word) => { if (args === word) args = ""; else if (args.startsWith(word + " ")) args = args.slice(word.length + 1).trim(); };

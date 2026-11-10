@@ -5,7 +5,7 @@ argument-hint: "<description of the change>"
 Discuss an amendment to the selected T2 feature "$1".
 Requested change: ${@:2}
 
-This is discussion only, not a new grill or an approval gate. Preserve the selected project, slug and tier. Do not call dt_propose_scope or run `/dt-grill`. Agreement in chat is not approval.
+This is discussion only, not a new grill or an approval gate. Preserve the selected project, slug and tier. Do not call dt_propose_scope or run `/dt-start`. Agreement in chat is not approval.
 
 ## Ground the discussion
 

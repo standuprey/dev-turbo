@@ -4,7 +4,7 @@ argument-hint: "[what to build, or 'as aligned']"
 ---
 Build this as a T0/T1 task. Type: $1. Task: ${@:2}
 
-Alignment: use the grill session and its Scope block from this conversation. If there is none, stop and tell me to run `/dt-grill` first. Scale: restate the scale line from the facts block; if it says "matters", add a test or measurement for the target; if "does not matter", still keep the change from introducing unbounded growth (unlimited queries, in-memory accumulation, retries without backoff).
+Alignment: use the grill session and its Scope block from this conversation. If there is none, stop and tell me to run `/dt-start` first. Scale: restate the scale line from the facts block; if it says "matters", add a test or measurement for the target; if "does not matter", still keep the change from introducing unbounded growth (unlimited queries, in-memory accumulation, retries without backoff).
 
 Run `node ~/.pi/agent/dt/dt.mjs info` (main branch, `checks`) and read `~/.pi/agent/dt/overlays/$1.md` (for mixed, read every relevant overlay rather than looking for mixed.md).
 
@@ -12,7 +12,7 @@ Run `node ~/.pi/agent/dt/dt.mjs info` (main branch, `checks`) and read `~/.pi/ag
 Code, comments, test names, commit messages and PR titles/bodies must stand on their own. Never reference the dev-turbo plan, spec, tickets, slices or gates, or assume readers know the workflow. Describe current behavior and technical reasons, not which workflow step introduced something or will finish it. The same rule applies to documentation shipped with the change. Workflow references belong only in dev-turbo planning artifacts, saved progress and command/gate handovers; required issue links and concrete PR sequencing remain allowed.
 
 ## Protocol
-1. Name the module that owns this change in one sentence. If it needs a new module or alters a public contract, STOP and end with `/dt-grill <expanded task>` to revise Scope as T2 before a spec can start. Do not decide contracts on your own.
+1. Name the module that owns this change in one sentence. If it needs a new module or alters a public contract, STOP and end with `/dt-start <expanded task>` to revise Scope as T2 before a spec can start. Do not decide contracts on your own.
 2. **T1 Slices approval**: unless the session already has an approved quick `slices` gate, list 2-5 scenario titles and the owning module, call `dt_propose_quick_gate` with gate `slices` and the plan note, then STOP with `/dt-approve slices`. After that approval the user runs `/dt-quick` again to start coding. A chat yes does not approve. T0 skips this plan gate.
 3. `git fetch origin` and `git switch -c quick/<short-name> origin/<main>` in this checkout. Never commit on the main branch.
 4. Write the failing test(s) first at the module boundary; run them and show they fail for the right reason.

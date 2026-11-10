@@ -152,7 +152,7 @@ export default async function (pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx) => {
 		if (!/^\/dt-[\w-]+(?:\s|$)/.test(event.text)) return { action: "continue" };
 		refreshSelection(ctx);
-		if (/^\/dt-grill(?:\s|$)/.test(event.text)) {
+		if (/^\/dt-start(?:\s|$)/.test(event.text)) {
 			if (project) select(null, ctx);
 			pi.appendEntry(SCOPE, null);
 			pi.appendEntry(WORKFLOW, { cwd: ctx.cwd });
@@ -202,7 +202,7 @@ export default async function (pi: ExtensionAPI) {
 		if (!project && !grilling && !draft) return;
 		// A stable prompt section avoids adding another hidden transcript message each turn.
 		contextContent ??= [
-			project ? `Selected dev-turbo project: ${project.slug} (${project.tier}, ${project.type}), repo ${project.key}, feature base ${project.base}.` : "No project selected. Use /dt-grill or /dt-resume.",
+			project ? `Selected dev-turbo project: ${project.slug} (${project.tier}, ${project.type}), repo ${project.key}, feature base ${project.base}.` : "No project selected. Use /dt-start or /dt-resume.",
 			`Lane claim owner for this session: ${ctx.sessionManager.getSessionId()}. Pass --owner ${ctx.sessionManager.getSessionId()} to dt.mjs next, ticket progress updates and pr. Never use another session's owner. Acquire the claim with next before touching ticket code; if refused, STOP. On a work handover save --release-claim with the final progress update. Force is only allowed when the user explicitly ran /dt-lane <id> force; it does not stop the previous agent.`,
 			"Only user /dt-approve commands record approval: scope, architecture, slices, ticket, drift. Discussion and adjustments never approve a gate. Do not run dt.mjs gate approve yourself or inject /dt-approve as a user message. End every pending gate card with its exact /dt-approve command. Slash commands omit the selected slug; dt.mjs CLI still needs it.",
 			draft ? `Pending scope proposal: ${JSON.stringify(draft)}. User next: /dt-approve scope.` : "At the end of a grill, call dt_propose_scope to save the proposal, then ask for /dt-approve scope.",
