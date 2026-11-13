@@ -33,6 +33,41 @@ function fixture(t) {
   return { lanes, feature, progressFile, dt, ok, progress, save, git, env };
 }
 
+test("ticket switches share one git status snapshot per command, including clean results", (t) => {
+  const f = fixture(t);
+  f.ok(0, "next", "demo", "--ticket", "00", "--owner", "here", "--claim-only");
+  const bin = path.join(f.feature, "git-bin"), log = path.join(f.feature, "git-status.log");
+  const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
+  assert.ok(realGit);
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, "git"), `#!${process.execPath}\n` +
+    `const fs = require("node:fs"), { spawnSync } = require("node:child_process");\n` +
+    `if (process.argv[2] === "status") fs.appendFileSync(${JSON.stringify(log)}, "status\\n");\n` +
+    `const r = spawnSync(${JSON.stringify(realGit)}, process.argv.slice(2), { stdio: "inherit" });\n` +
+    `process.exit(r.status ?? 1);\n`, { mode: 0o755 });
+  f.env.PATH = `${bin}${path.delimiter}${f.env.PATH}`;
+  const check = (...args) => {
+    fs.writeFileSync(log, "");
+    const r = f.dt(0, "next", "demo", "--ticket", "01", "--owner", "here", "--claim-only", ...args);
+    assert.equal(fs.readFileSync(log, "utf8"), "status\n", "all guards must reuse the snapshot within this command");
+    return r;
+  };
+  const before = fs.readFileSync(f.progressFile, "utf8");
+  const clean = check("--check-only", "--json");
+  assert.equal(clean.status, 0, clean.stderr);
+  assert.deepEqual(JSON.parse(clean.stdout).warnings, []);
+  fs.writeFileSync(path.join(f.lanes[0], "dirty.txt"), "keep");
+  const dirty = check("--check-only", "--json");
+  assert.equal(dirty.status, 0, dirty.stderr);
+  assert.ok(JSON.parse(dirty.stdout).warnings.includes("working tree is not clean"), "a new command must not reuse the previous clean snapshot");
+  assert.notEqual(check().status, 0);
+  assert.equal(fs.readFileSync(f.progressFile, "utf8"), before);
+  fs.unlinkSync(path.join(f.lanes[0], "dirty.txt"));
+  const started = check();
+  assert.equal(started.status, 0, started.stderr);
+  assert.equal(f.progress().tickets["01"].claim.owner, "here");
+});
+
 test("start preflight is read-only and reports every dependency, overlap, unsafe and saved-plan warning", (t) => {
   const f = fixture(t);
   const file = path.join(f.feature, "tickets", "01.md");

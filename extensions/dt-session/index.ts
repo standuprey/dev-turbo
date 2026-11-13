@@ -16,6 +16,7 @@ export default async function (pi: ExtensionAPI) {
 	const load = createModuleLoader(import.meta.url);
 	const { ENTRY, TYPES, restoreProject, resolveCommand, validSlug } = await load("./state.mjs");
 	const { createProjectFooter } = await load("./footer.mjs");
+	const { parseExecJson } = await load("./exec-json.mjs");
 	const { WORKFLOW, createBranchReader } = await load("./branch.mjs");
 	const TICKET_MESSAGE = "dt-ticket";
 	const { createTicketRenderer } = await load("./ticket-screenshots.mjs");
@@ -35,8 +36,7 @@ export default async function (pi: ExtensionAPI) {
 
 	const readRepo = async (ctx: ExtensionContext): Promise<Repo> => {
 		const result = await pi.exec("node", [dt, "info", "--json"], { cwd: ctx.cwd, timeout: 5000 });
-		if (result.code !== 0) throw new Error(result.stderr || "Cannot resolve this repository.");
-		return JSON.parse(result.stdout);
+		return parseExecJson(result, "Cannot resolve this repository");
 	};
 	const restoreRepo = async (ctx: ExtensionContext) => {
 		const branch = branchReader.read(ctx.sessionManager);
@@ -113,6 +113,14 @@ export default async function (pi: ExtensionAPI) {
 		await restoreRepo(ctx);
 		refreshSelection(ctx);
 	});
+	const withLaneFeedback = async <T,>(ctx: ExtensionContext, message: string, work: () => Promise<T>): Promise<T> => {
+		if (ctx.hasUI) {
+			ctx.ui.setStatus("dt-lane-check", message);
+			ctx.ui.notify(message, "info");
+		}
+		try { return await work(); }
+		finally { if (ctx.hasUI) ctx.ui.setStatus("dt-lane-check", undefined); }
+	};
 	const loadSnapshot = async (ctx: ExtensionContext, selectedProject: Project) => {
 		const logic = await load(pathToFileURL(dt).href);
 		const repo = logic.resolveRepo(ctx.cwd);
@@ -138,7 +146,7 @@ export default async function (pi: ExtensionAPI) {
 					return { action: "handled" };
 				}
 				const selectedProject = project;
-				const { logic } = await loadSnapshot(ctx, selectedProject);
+				const { logic } = await withLaneFeedback(ctx, "Loading tickets…", () => loadSnapshot(ctx, selectedProject));
 				const { chooseLane } = await load("./lane-picker.mjs");
 				const id = await chooseLane({ project: selectedProject, ctx, logic, loadSnapshot: () => loadSnapshot(ctx, selectedProject) });
 				if (!id) return { action: "handled" };
@@ -147,12 +155,15 @@ export default async function (pi: ExtensionAPI) {
 			if (text?.startsWith("/dt-lane ") && project) {
 				const selectedProject = project;
 				const [, , id, option] = text.split(" ");
-				const { snapshot, logic } = await loadSnapshot(ctx, selectedProject);
-				const setupClaim = selectedProject.tier === "T2" && logic.requiresJira(selectedProject.key) && !snapshot.prog.tickets[id.padStart(2, "0")]?.branch;
-				const checked = await pi.exec("node", [dt, "next", selectedProject.slug, "--ticket", id, "--owner", ctx.sessionManager.getSessionId(), "--check-only", "--json", ...(setupClaim ? ["--claim-only"] : []), ...(option === "force" ? ["--force"] : []), ...(option === "override" ? ["--override"] : [])], { cwd: ctx.cwd, timeout: 15000 });
-				if (checked.code !== 0) throw new Error(checked.stderr || "Cannot inspect ticket start warnings.");
-				const { warnings } = JSON.parse(checked.stdout);
-				if (!Array.isArray(warnings) || warnings.some((w: unknown) => typeof w !== "string")) throw new Error("Invalid ticket start warnings.");
+				const { snapshot, warnings } = await withLaneFeedback(ctx, `Checking ticket ${id}: repository, claims and start warnings…`, async () => {
+					const { snapshot, logic } = await loadSnapshot(ctx, selectedProject);
+					const setupClaim = selectedProject.tier === "T2" && logic.requiresJira(selectedProject.key) && !snapshot.prog.tickets[id.padStart(2, "0")]?.branch;
+					const checked = await pi.exec("node", [dt, "next", selectedProject.slug, "--ticket", id, "--owner", ctx.sessionManager.getSessionId(), "--check-only", "--json", ...(setupClaim ? ["--claim-only"] : []), ...(option === "force" ? ["--force"] : []), ...(option === "override" ? ["--override"] : [])], { cwd: ctx.cwd, timeout: 60000 });
+					const checkedData = parseExecJson(checked, "Cannot inspect ticket start warnings");
+					const warnings = checkedData?.warnings;
+					if (!Array.isArray(warnings) || warnings.some((w: unknown) => typeof w !== "string")) throw new Error("Invalid ticket start warnings.");
+					return { snapshot, warnings };
+				});
 				const { confirmTicket } = await load("./ticket-preview.mjs");
 				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: option === "force", override: option === "override", warnings })) return { action: "handled" };
 				if (warnings.length || option === "override") text = `/dt-lane ${selectedProject.slug} ${id} override`;

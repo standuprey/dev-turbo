@@ -27,21 +27,49 @@ for (const [key, branch, claimOnly] of [["org/repo", "", false], ["csscompany-en
       "@earendil-works/pi-ai": join(pkg, "dist/core/extensions/pi-ai-extension-view.js"),
     } });
     const session = await jiti.import(join(import.meta.dirname, "../extensions/dt-session/index.ts"), { default: true });
-    const handlers = new Map(), calls = [], notices = [];
+    const handlers = new Map(), calls = [], notices = [], statuses = [];
+    let activeStatus;
+    let checkedResult = { code: 0, stdout: JSON.stringify({ warnings: [] }) };
+    let confirmations = 0;
     await session({ on: (name, fn) => handlers.set(name, fn), events: { on() {} }, registerMessageRenderer() {}, registerTool() {},
       sendMessage() {}, exec: async (_cmd, args) => {
         calls.push(args);
         if (args[1] === "info") return { code: 0, stdout: JSON.stringify(repo) };
         assert.equal(args[1], "next"); assert.ok(args.includes("--check-only"));
+        if (ctx.hasUI) {
+          assert.match(activeStatus, /Checking ticket 00/);
+          assert.match(notices.at(-1), /Checking ticket 00/);
+          await Promise.resolve();
+          assert.match(activeStatus, /Checking ticket 00/, "feedback stays visible while awaiting the check");
+        }
         assert.equal(args.includes("--claim-only"), claimOnly, "not-yet-created Jira metadata is not itself a start warning");
-        return { code: 0, stdout: JSON.stringify({ warnings: [] }) };
+        return checkedResult;
       },
     });
-    const ctx = { mode: "print", hasUI: true, cwd: "/repo", sessionManager: { getBranch: () => [{ type: "custom", customType: "dt-project", data: project }], getSessionId: () => "here" }, ui: { setStatus() {}, setFooter() {}, notify: (m) => notices.push(m), confirm: async () => true } };
+    const ctx = { mode: "print", hasUI: true, cwd: "/repo", sessionManager: { getBranch: () => [{ type: "custom", customType: "dt-project", data: project }], getSessionId: () => "here" }, ui: { setStatus(key, value) { if (key === "dt-lane-check") { statuses.push(value); activeStatus = value; } }, setFooter() {}, notify: (m) => notices.push(m), confirm: async () => { assert.equal(activeStatus, undefined, "clear feedback before confirmation"); confirmations++; return true; } } };
     await handlers.get("session_start")({}, ctx);
     const result = await handlers.get("input")({ text: "/dt-lane 00", source: "interactive" }, ctx);
     assert.equal(result.text, "/dt-lane demo 00", notices.join("\n"));
     assert.equal(calls.filter((args) => args[1] === "next").length, 1);
+    for (const [response, warning] of [
+      [{ code: 0, killed: true, stdout: "" }, /interrupted or timed out/],
+      [{ code: 0, stdout: "" }, /returned no JSON/],
+      [{ code: 0, stdout: '{"warnings":' }, /invalid or incomplete JSON/],
+      [{ code: 0, truncated: true, stdout: '{"warnings":[]}' }, /truncated/],
+      [{ code: 0, stdout: 'null' }, /Invalid ticket start warnings/],
+    ]) {
+      checkedResult = response;
+      const before = confirmations;
+      assert.deepEqual(await handlers.get("input")({ text: "/dt-lane 00", source: "interactive" }, ctx), { action: "handled" });
+      assert.match(notices.at(-1), warning);
+      assert.equal(confirmations, before, "failed preflight must not reach start confirmation");
+      assert.equal(activeStatus, undefined, "clear feedback even after failed checks");
+    }
+    ctx.hasUI = false;
+    checkedResult = { code: 0, stdout: JSON.stringify({ warnings: [] }) };
+    const statusCount = statuses.length;
+    await handlers.get("input")({ text: "/dt-lane 00", source: "interactive" }, ctx);
+    assert.equal(statuses.length, statusCount, "non-UI sessions do not set progress feedback");
     assert.equal(await readFile(join(feature, "progress.json"), "utf8"), progress);
   });
 }

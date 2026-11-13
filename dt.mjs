@@ -764,6 +764,10 @@ function cmdNext(ctx, slug) {
   if (!owner && !DRY) fail("next needs --owner <session ID>; /dt-lane supplies it");
   if ((override || checking || force) && !wanted) fail("--override, --check-only and --force need an explicit --ticket ID");
   const warnings = new Set();
+  // All cleanliness guards inspect the same checkout before any Git writes.
+  // Keep the snapshot local to this invocation, including a clean (empty) result.
+  let dirtySnapshot;
+  const checkoutDirty = () => dirtySnapshot ??= dirty(ctx);
   const enforce = (condition, message) => {
     if (!condition) return;
     if (!override && !checking) fail(message + "; use an explicit --override to start anyway");
@@ -783,7 +787,7 @@ function cmdNext(ctx, slug) {
     : savedWanted?.branch && (["todo", "in_progress", "review"].includes(d.st[pad(wanted)]?.status) || override) ? pad(wanted) : null;
   enforce(ctx.modality === "monorepo" && ctx.laneIndex < 0 && !quick, `run this inside one of the configured lanes: ${ctx.lanes.join(", ")}`);
   enforce(ctx.modality === "standalone" && ctx.isWorktree && !resume, "run this from the main checkout, not from a lane worktree");
-  enforce((!resume || switching || force || override) && dirty(ctx), "working tree is not clean");
+  enforce((!resume || switching || force || override) && checkoutDirty(), "working tree is not clean");
   let t, previous, branch, where, here;
   const released = [];
   const reserve = (prog) => {
@@ -798,7 +802,7 @@ function cmdNext(ctx, slug) {
     const occupied = Object.entries(prog.tickets).filter(([id, saved]) => id !== t.id && saved.claim?.checkout && real(saved.claim.checkout) === real(ctx.root));
     if (occupied.length || switching) {
       enforce(!wanted || ctx.modality !== "monorepo", `this checkout is claimed for ticket ${occupied[0]?.[0] || current}; finish it or use another lane`);
-      enforce(dirty(ctx), "working tree is not clean");
+      enforce(checkoutDirty(), "working tree is not clean");
       let peers = [];
       try { peers = otherCheckoutSessions(ctx.root); }
       catch (error) { enforce(true, `cannot verify no active session for this checkout: ${error.message}`); }
@@ -824,7 +828,7 @@ function cmdNext(ctx, slug) {
       enforce(e.jira && e.jira.epic !== epic, "saved Jira ticket belongs to another epic");
     }
     branch = e.branch || (e.jira ? jiraBranch(e.jira.key, e.jira.title) : flag("--claim-only") ? "" : quick ? `quick/${slug}` : `ticket/${slug}-${t.id}`);
-    enforce(resume && (!["in_progress", "review"].includes(e.status) || ctx.branch !== branch) && dirty(ctx), "working tree is not clean");
+    enforce(resume && (!["in_progress", "review"].includes(e.status) || ctx.branch !== branch) && checkoutDirty(), "working tree is not clean");
     here = ctx.modality === "monorepo" || quick || ((override || checking) && (ctx.isWorktree || switching || (checkout && real(checkout) !== real(ctx.root)) || occupied.length));
     where = here ? ctx.root : e.worktree || (flag("--claim-only") || resume ? ctx.root : path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`));
     if (!here && !resume && !flag("--claim-only")) {
@@ -856,7 +860,7 @@ function cmdNext(ctx, slug) {
   try {
     if (resume) {
       if (ctx.branch !== branch) {
-        enforce(dirty(ctx), "working tree is not clean");
+        enforce(checkoutDirty(), "working tree is not clean");
         if (!flag("--no-fetch")) git(["fetch", "--quiet", "origin", branch], { cwd: ctx.root, soft: true });
         run("git", ["switch", ...(override ? ["--ignore-other-worktrees"] : []), branch], { cwd: ctx.root });
       }

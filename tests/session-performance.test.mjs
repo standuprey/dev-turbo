@@ -113,7 +113,7 @@ test("Pi runtime: idle sessions stay dormant and active input reuses state witho
   process.env.DT_DIR = dir;
   t.after(async () => { if (previous === undefined) delete process.env.DT_DIR; else process.env.DT_DIR = previous; await rm(dir, { recursive: true, force: true }); });
   // Omit command-only modules: loading the extension must not need them.
-  for (const file of ["index.ts", "runtime.ts", "state.mjs", "gates.mjs", "approval-guard.mjs", "footer.mjs", "branch.mjs", "ticket-screenshots.mjs"]) {
+  for (const file of ["index.ts", "runtime.ts", "state.mjs", "gates.mjs", "approval-guard.mjs", "footer.mjs", "branch.mjs", "ticket-screenshots.mjs", "exec-json.mjs"]) {
     await writeFile(join(dir, file), await readFile(new URL(`../extensions/dt-session/${file}`, import.meta.url)));
   }
   const { createJiti } = createRequire(join(pkg, "package.json"))("jiti");
