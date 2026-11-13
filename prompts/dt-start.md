@@ -4,15 +4,7 @@ argument-hint: "<what you want to build or change>"
 ---
 Grill me on: $@
 
-Start by running `node ~/.pi/agent/dt/dt.mjs info` and keep its output in mind: modality (monorepo or standalone), main branch, where feature docs live, and the `checks` command. If `checks` is unset, ask me for it once at the end and save it with `node ~/.pi/agent/dt/dt.mjs config set checks "<cmd>"`.
-
-## Jira epic (repo-specific, T2 only)
-
-Wait for the user to choose the tier before asking for an epic. T0/T1 assume all work fits inside one ticket: do not ask for an epic or block the plan on a missing one.
-
-For T2 projects in exactly `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, ask which **existing Jira epic** this feature belongs to. Ask for its key or URL; do not guess from a branch, silently create an epic, or accept n/a. Use the available Jira tools to verify that it exists and is an Epic. If access fails or the epic is missing, stop and ask for help.
-
-Once the feature slug is settled, save the confirmed key with `node ~/.pi/agent/dt/dt.mjs epic <slug> --key <EPIC-KEY>`. This creates draft `feature.json` metadata with `epic`; it never approves anything or selects a project. This applies only to T2. On a slug change, save it under the revised slug before proposing the plan. Include `Epic: <key>` in the plan card. `dt_propose_plan` reads this saved epic and refuses a missing one only for T2 in these repos. Other repos keep their existing flow.
+Start by running `node ~/.pi/agent/dt/dt.mjs info` and keep its output in mind: main branch, where feature docs live, and the `checks` command. If `checks` is unset, ask me for it once at the end and save it with `node ~/.pi/agent/dt/dt.mjs config set checks "<cmd>"`.
 
 ## How to grill
 
@@ -62,7 +54,7 @@ Show this comparison table. Explain the workflow differences, not which tier you
 
 Then ask: **Which tier do you want: T0, T1 or T2?**
 
-STOP and wait for my explicit choice. A chat "yes" is not a tier choice. If I already explicitly chose a tier for this scope, use that choice without asking again; never substitute your own classification. After my choice, resolve any required T2 Jira epic as described above and propose a short lowercase kebab-case slug.
+STOP and wait for my explicit choice. A chat "yes" is not a tier choice. If I already explicitly chose a tier for this scope, use that choice without asking again; never substitute your own classification. After my choice, propose a short lowercase kebab-case slug.
 
 ## Write the plan
 
@@ -202,7 +194,7 @@ T2 rules:
 Before proposing, check every UI ticket has its UI reference section and coverage for its relevant states, either captures or explicit user-approved waivers. Verify that every linked screenshot exists and relative links resolve from the ticket; do not propose while an unwaived reference gap remains.
 
 Call `dt_propose_plan` with the slug, my chosen tier, the type (`web | device | service | cli | mixed`) and a one-line note. Then post a compact plan card:
-1. Task summary (≤3 sentences), tier, type, slug, and `Epic: <key>` when required.
+1. Task summary (≤3 sentences), tier, type and slug.
 2. T2: the compact module map from `spec.md`; show a rendered module diagram only when the user requested one and the spec contains it.
 3. Tickets: a table `id | title | blocked_by | touches`, plus each ticket's outcome in one line.
 4. Up to 3 decisions you are least sure about.
@@ -210,4 +202,4 @@ Call `dt_propose_plan` with the slug, my chosen tier, the type (`web | device | 
 
 Before initial plan approval, if I ask for changes, edit the files and call `dt_propose_plan` again before posting an updated card. After the feature is approved, normal work can update editable tickets and the spec directly: settle unresolved choices in chat and keep the original approval, without another proposal or `/dt-approve plan`. `/dt-revise` is optional for a spec/ticket coverage audit or a focused requested edit. If I change the scope itself, summarize it again and ask me to choose the tier again; a name-only change keeps my tier but needs the files moved to the new slug folder.
 
-Only `/dt-approve plan` creates the project, records approval and selects it. Never run `dt.mjs gate` yourself. In standalone modality, tell me that T2 ticket files must be committed and pushed to the main branch before the first `/dt-lane`. After approval the next command is `/dt-lane`.
+Only `/dt-approve plan` creates the project, records approval and selects it. Never run `dt.mjs gate` yourself. For T2, tell me that the ticket files must be committed and pushed to the main branch before the first `/dt-lane`. After approval the next command is `/dt-lane`.

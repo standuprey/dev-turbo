@@ -19,6 +19,15 @@ test("only four workflow prompts remain; removed prompts are cleaned up on insta
   for (const doc of [readme, workflow, start, revise, lane, review]) assert.doesNotMatch(doc, /\/dt-(?:spec|slice|amend|drift|quick|show)\b(?![^\n]*print their replacement)/);
 });
 
+test("workflow prompts and docs describe worktrees and GitHub issues, without Jira or lane clones", () => {
+  const agents = read("../AGENTS.md"), service = read("../overlays/service.md");
+  for (const doc of [readme, workflow, start, revise, lane, review, agents, service]) {
+    assert.doesNotMatch(doc.replace(/^.*Atoms version.*$/m, ""), /\bJira\b|\bepic\b|\bmodality\b|\bmonorepo\b|claim-only|lane clone/i);
+  }
+  assert.match(lane, /open pi in <path>/);
+  assert.match(workflow, /worktrees `\.\.\/<repo>\.lane-<id>`/);
+});
+
 test("the grill waits for the user's tier choice after a short summary", () => {
   assert.match(start, /summarize the task in at most 3 short sentences/);
   assert.match(start, /Which tier do you want: T0, T1 or T2\?/);
@@ -28,7 +37,7 @@ test("the grill waits for the user's tier choice after a short summary", () => {
   assert.match(start, /STOP and wait for my explicit choice/);
   assert.match(start, /A chat "yes" is not a tier choice/);
   assert.match(start, /already explicitly chose a tier for this scope, use that choice/);
-  assert.match(start, /After my choice, resolve any required T2 Jira epic/);
+  assert.match(start, /After my choice, propose a short lowercase kebab-case slug/);
   assert.match(start, /If I change the scope itself, summarize it again and ask me to choose the tier again/);
   for (const doc of [readme, workflow]) {
     assert.match(doc, /short (?:task )?summary/);
@@ -131,8 +140,8 @@ test("tickets explain concrete behavior with code or pseudocode without inventin
   assert.match(revise, /only clarify its existing behavior, not add requirements/);
 });
 
-test("UI tickets describe pages, controls, actions and visible results in plans and Jira", () => {
-  for (const prompt of [start, revise, lane]) {
+test("UI tickets describe pages, controls, actions and visible results in plans", () => {
+  for (const prompt of [start, revise]) {
     assert.match(prompt, /page or route, visible UI elements, user actions and (?:the visible result of each action|their visible results)/);
     assert.match(prompt, /mixed UI\/backend/);
     assert.match(prompt, /known or settled routes, labels and behavior|routes and labels known from the code or agreed with the user/);
@@ -142,8 +151,6 @@ test("UI tickets describe pages, controls, actions and visible results in plans 
   assert.match(start, /Canceling leaves the list unchanged and creates no brand/);
   assert.match(start, /ask about missing product decisions instead of inventing pages, controls or behavior/);
   assert.match(revise, /must only clarify its existing behavior, not add requirements/);
-  assert.match(lane, /keep the Jira description concrete too/);
-  assert.match(lane, /keep the description within 3 to 5 bullets/);
   const web = read("../overlays/web.md");
   assert.match(web, /UI ticket descriptions name the page or route/);
   assert.match(web, /Use meaningful UI actions when needed, not CSS selectors/);
@@ -174,7 +181,6 @@ test("UI lanes read planning screenshots and compare results without asserting p
   assert.match(lane, /Before UI implementation, read the ticket's UI reference section/);
   assert.match(lane, /open its linked screenshots and manifest/);
   assert.match(lane, /Planning screenshots in `references\/ui\/` are required inputs/);
-  assert.match(lane, /prototype URL and relevant screen\/state in one of the existing Jira bullets/);
   assert.match(web, /Compare the implemented screen\/state against the ticket's reference screenshots/);
   assert.match(web, /Visual acceptance remains human-owned/);
   assert.match(web, /do not assert it in tests/);

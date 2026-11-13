@@ -6,20 +6,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const pkg = process.env.PI_PACKAGE_DIR;
-for (const [key, branch, claimOnly] of [["org/repo", "", false], ["csscompany-enterprise/monorepo", "", true], ["csscompany-enterprise/monorepo", "ov_745_schema", false]]) {
+for (const [key, branch] of [["org/repo", ""], ["org/repo", "ticket/demo-00"]]) {
   test(`Pi preflight chooses the actual startup stage: ${key}, branch ${branch || "not created"}`, { skip: !pkg }, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "dt-preflight-runtime-"));
     const previous = process.env.DT_DIR; process.env.DT_DIR = dir;
     t.after(async () => { if (previous === undefined) delete process.env.DT_DIR; else process.env.DT_DIR = previous; await rm(dir, { recursive: true, force: true }); });
-    const repo = { key, featuresBase: join(dir, "features"), root: "/repo", branch: "main", lanes: ["/repo"], modality: "monorepo" };
+    const repo = { key, featuresBase: join(dir, "features"), root: "/repo", branch: "main" };
     const project = { slug: "demo", key, base: repo.featuresBase, tier: "T2", type: "service" };
     const feature = join(repo.featuresBase, "demo");
     await mkdir(join(feature, "tickets"), { recursive: true });
-    await writeFile(join(feature, "feature.json"), JSON.stringify({ ...project, epic: "OV-681" }));
+    await writeFile(join(feature, "feature.json"), JSON.stringify(project));
     const progress = JSON.stringify({ gates: { G2: { state: "approved" } }, tickets: branch ? { "00": { status: "in_progress", branch } } : {} });
     await writeFile(join(feature, "progress.json"), progress);
     await writeFile(join(feature, "tickets/00.md"), '---\nid: "00"\ntitle: Skeleton\nblocked_by: []\ntouches: []\nunsafe_with: []\n---\n## Outcome\nRead brands.\n');
-    await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+    await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
     const { createJiti } = createRequire(join(pkg, "package.json"))("jiti");
     const jiti = createJiti(join(pkg, "package.json"), { alias: {
       "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js"),
@@ -42,7 +42,7 @@ for (const [key, branch, claimOnly] of [["org/repo", "", false], ["csscompany-en
           await Promise.resolve();
           assert.match(activeStatus, /Checking ticket 00/, "feedback stays visible while awaiting the check");
         }
-        assert.equal(args.includes("--claim-only"), claimOnly, "not-yet-created Jira metadata is not itself a start warning");
+        assert.equal(args.includes("--claim-only"), false, "preflight checks the real start, not a partial claim");
         return checkedResult;
       },
     });

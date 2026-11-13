@@ -5,7 +5,7 @@ const text = (v) => namedText(v).replace(/[\r\n\t]/g, " ").replace(/[\x00-\x1f\x
 const cell = (v) => text(v).replace(/\|/g, "\\|").replace(/`/g, "'");
 const finish = (lines, view, logic) => lines.concat("", "## Next commands", nextCommandText(nextCommands(view, logic))).flat().join("\n");
 
-const progressLabels = { next: "Saved handover", todo: "Todo", prs: "PRs", issues: "Issues", jira: "Jira", url: "URL", updated: "Last updated", checked: "Last checked", acquired: "Acquired", worktree: "Worktree" };
+const progressLabels = { next: "Saved handover", todo: "Todo", prs: "PRs", issues: "Issues", url: "URL", updated: "Last updated", checked: "Last checked", acquired: "Acquired", worktree: "Worktree" };
 const progressLabel = (key) => progressLabels[key] || key.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 const progressText = (value) => text(String(value)).replace(/[\\`*\[\]<>]/g, "\\$&");
 

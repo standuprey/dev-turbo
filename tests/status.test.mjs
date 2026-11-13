@@ -50,8 +50,8 @@ test("ticket detail includes all saved progress without changing files or showin
 		next: "/dt-review demo 00", verification: "unit tests passed\nstaging needs acceptance",
 		todo: ["Check keyboard navigation"], blockers: ["Needs human"],
 		prs: [{ number: 123, url: "https://github.com/org/repo/pull/123", state: "merged", checked: "2026-11-05T09:00Z" }],
-		issues: [{ key: "OV-731", url: "https://jira.example/browse/OV-731" }],
-		jira: { key: "OV-731", description: "Keep scoped styles" }, acceptance: { state: "pending" },
+		issues: [{ key: "OV-731", url: "https://tracker.example/browse/OV-731" }],
+		tracker: { key: "OV-731", description: "Keep scoped styles" }, acceptance: { state: "pending" },
 		custom: { note: "Keep ``` intact" },
 	};
 	const f = await fixture(t, { tickets: { "00": saved, "01": { verification: "Other ticket only" } } });
@@ -68,7 +68,7 @@ test("ticket detail includes all saved progress without changing files or showin
 	assert.match(output, /Saved ticket progress/);
 	assert.match(output, /progress.json.*2026-11-05T10:00Z/);
 	assert.match(output, /PR states are saved observations/);
-	for (const label of ["Status", "Last updated", "Branch", "Worktree", "Claim", "Saved handover", "Verification", "Todo", "Blockers", "PRs", "Issues", "Jira", "Acceptance", "Custom"]) {
+	for (const label of ["Status", "Last updated", "Branch", "Worktree", "Claim", "Saved handover", "Verification", "Todo", "Blockers", "PRs", "Issues", "Tracker", "Acceptance", "Custom"]) {
 		assert.ok(output.includes(`**${label}:**`), `missing readable ${label}`);
 	}
 	for (const value of ["session-123", "/lane2", "2026-11-04T09:00Z", "/dt-review demo 00", "unit tests passed staging needs acceptance", "Check keyboard navigation", "Needs human", "https://github.com/org/repo/pull/123", "merged", "OV-731", "Keep scoped styles", "pending"]) {

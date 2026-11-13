@@ -47,4 +47,4 @@ Once the decisions are settled and edits are saved, save `node ~/.pi/agent/dt/dt
 
 ## Reply
 
-At most 8 lines: what changed in the brief, which tickets changed or were added (id, title, one-line reason), any remaining decision or blocker, and the next command. In standalone modality, remind me to commit and push changed ticket files to the main branch before starting them. Do not write implementation code or run `dt.mjs gate ... approve`.
+At most 8 lines: what changed in the brief, which tickets changed or were added (id, title, one-line reason), any remaining decision or blocker, and the next command. Remind me to commit and push changed ticket files to the main branch before starting them. Do not write implementation code or run `dt.mjs gate ... approve`.

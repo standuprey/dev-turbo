@@ -26,7 +26,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	const session = await jiti.import(join(import.meta.dirname, "../extensions/dt-session/index.ts"), { default: true });
 	const resume = await jiti.import(join(import.meta.dirname, "../extensions/dt-resume.ts"), { default: true });
 	const repo = { key: "org/repo", featuresBase: join(dir, "features"), root: "/repo" };
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	await mkdir(join(repo.featuresBase, "checkout", "tickets"), { recursive: true });
 	await writeFile(join(repo.featuresBase, "checkout", "feature.json"), JSON.stringify({ slug: "checkout", tier: "T2", type: "service" }));
 	await writeFile(join(repo.featuresBase, "checkout", "progress.json"), JSON.stringify({ tickets: {} }));
@@ -183,7 +183,7 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "done", verification: "tests passed" } }, next: "Run acceptance checks" });
 	await writeFile(join(base, "demo", "progress.json"), progress);
 	await writeFile(join(base, "demo", "tickets/00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\n');
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	const require = createRequire(join(piPackage, "package.json"));
 	const { createJiti } = require("jiti");
 	const jiti = createJiti(join(piPackage, "package.json"), { alias: { "@earendil-works/pi-coding-agent": join(piPackage, "dist/index.js"), "@earendil-works/pi-tui": join(piPackage, "../pi-tui/dist/index.js") } });

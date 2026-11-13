@@ -15,7 +15,7 @@ export function laneOptions(snapshot, repo, owner, logic) {
   return tickets.filter((t) => st[t.id].status !== "done").map((t) => {
     const saved = prog.tickets[t.id] || {};
     let state = "blocked", reason = "", selectable = false;
-    const checkout = saved.claim?.checkout || (repo.modality === "standalone" ? saved.worktree : "");
+    const checkout = saved.claim?.checkout || saved.worktree || "";
     if (saved.claim && saved.claim.owner !== owner) {
       state = "locked"; reason = `owner ${saved.claim.owner} · ${checkout}`;
     } else if (checkout && real(checkout) !== real(repo.root)) {
@@ -26,7 +26,7 @@ export function laneOptions(snapshot, repo, owner, logic) {
       state = "review"; reason = `use /dt-review ${t.id}`;
     } else if (saved.blockers?.length || prog.blockers.length) {
       reason = (saved.blockers?.length ? saved.blockers : prog.blockers).join(" · ");
-    } else if (current && current !== t.id && st[current]?.status !== "done" && repo.modality !== "monorepo") {
+    } else if (current && current !== t.id && st[current]?.status !== "done") {
       reason = `this checkout is on ticket ${current}; use another lane`;
     } else if (st[t.id].status === "in_progress") {
       state = "resume"; selectable = true;

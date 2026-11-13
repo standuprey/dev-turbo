@@ -20,7 +20,7 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "01": { status: "in_progress", lane: "lane 2", claim: { owner: "other", checkout: "/lane2" } }, "03": { status: "review" }, "04": { status: "done" } } });
   await writeFile(join(featureDir, "progress.json"), progress);
   for (const id of ["01", "02", "03", "04"]) await writeFile(join(featureDir, "tickets", `${id}.md`), `---\nid: "${id}"\ntitle: Ticket ${id}\ntouches: [module${id}]\nblocked_by: []\nunsafe_with: []\n---\n`);
-  await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+  await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
   const require = createRequire(join(piPackage, "package.json"));
   const { createJiti } = require("jiti");
   const jiti = createJiti(join(piPackage, "package.json"), { alias: {

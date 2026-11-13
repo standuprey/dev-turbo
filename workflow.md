@@ -53,19 +53,19 @@ Create a bounded spike when feasibility, an implementation approach, external be
 
 Dependent implementation tickets use `blocked_by` and leave the unresolved approach open. A prerequisite spike may precede ticket 00 without depending on it; 00 then depends on the spike. Other spikes depend on 00 when they need the skeleton. After review, the agent settles the approach in affected editable tickets directly, asking about unresolved choices; the spec changes only when requirements or the shared module map change. T0/T1 stay one ticket; ask the user before moving to a T2 project for separate spike and implementation tickets.
 
-## Two modalities
+## Lanes, issues and PRs
 
-| | monorepo (`csscompany-enterprise/monorepo`) | standalone (everything else) |
-|---|---|---|
-| T2 lanes | the two clones listed in config.json | worktrees `../<repo>.lane-<id>`, created by `dt.mjs next` |
-| T0/T1 | `quick/<slug>` branch in the current checkout | same |
-| feature docs | `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones, auto-committed to a local git repo | `docs/features/<slug>/` in the main checkout; commit T2 tickets before starting lanes |
-| work items | tickets only (Jira for T2 in the two CSS repos) | tickets + feature issue + issue per ticket (T2) |
-| GitHub | draft PR per ticket | ready PR per ticket |
+| | |
+|---|---|
+| T2 lanes | worktrees `../<repo>.lane-<id>`, created by `dt.mjs next` from the main checkout |
+| T0/T1 | `quick/<slug>` branch in the current checkout |
+| feature docs | `docs/features/<slug>/` in the main checkout; commit T2 tickets before starting lanes |
+| work items | tickets + feature issue + GitHub issue per ticket (T2) |
+| GitHub | ready PR per ticket |
 
 Ticket starts report policy conflicts as warnings. Selecting Start anyway, `/dt-lane <id> override` or CLI `next --override` explicitly bypasses dependencies, unsafe/shared-module constraints, saved blockers, plan gates, ownership/checkout rules and completed-work guards. Override is not plan approval and does not stop agents or discard files; invalid data, the progress lock and native Git/API failures still need valid inputs or repair. Takeover fences the displaced owner, and other active claims are retained when sharing a checkout. Reopened work requires a fresh PR before merge-based closure.
 
-Ticket progress stores no historical lane assignment. `claim.checkout` protects active work; an optional standalone `worktree` path persists for resume and cleanup.
+Ticket progress stores no historical lane assignment. `claim.checkout` protects active work; an optional `worktree` path persists for resume and cleanup.
 
 ## PR bodies
 
@@ -80,7 +80,7 @@ Use the format in [AGENTS.md](AGENTS.md):
 
 ```
 <features dir>/<slug>/
-  feature.json      identity: tier, type, modality (and epic for T2 in the two CSS repos)
+  feature.json      identity: tier, type
   spec.md           T2: what and why + module map; independent of ticket breakdown
   tickets/NN-*.md   how: work breakdown, ticket/lane ownership, dependencies and delivery checks
   progress.json     current state, written only by dt.mjs

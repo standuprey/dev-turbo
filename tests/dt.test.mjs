@@ -111,17 +111,20 @@ test("Gate 0 creates the project and approves its plan at every tier; it rejects
 });
 
 test("a feature resumes from its folder alone: gates, progress and briefs", () => {
-  const repo = fs.mkdtempSync(path.join(sandbox, "mono-repo-"));
-  const state = fs.mkdtempSync(path.join(sandbox, "mono-state-"));
+  const repo = fs.mkdtempSync(path.join(sandbox, "resume-repo-"));
+  const state = fs.mkdtempSync(path.join(sandbox, "resume-state-"));
   for (const args of [["init", "--quiet"], ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]]) {
     assert.equal(spawnSync("git", args, { cwd: repo, encoding: "utf8" }).status, 0);
   }
   const key = `${path.basename(sandbox)}/${path.basename(repo)}`;
-  fs.writeFileSync(path.join(state, "config.json"), JSON.stringify({ repos: { [key]: { modality: "monorepo", lanes: [repo], checks: "npm test" } } }));
-  const env = { ...process.env, DT_DIR: state, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
+  fs.writeFileSync(path.join(state, "config.json"), JSON.stringify({ repos: { [key]: { checks: "npm test" } } }));
+  // T2 approval opens GitHub issues; a stub gh returns an issue URL.
+  const bin = fs.mkdtempSync(path.join(sandbox, "resume-bin-"));
+  fs.writeFileSync(path.join(bin, "gh"), "#!/bin/sh\necho https://github.com/o/r/issues/7\n", { mode: 0o755 });
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, DT_DIR: state, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
   const dt = (...args) => spawnSync(process.execPath, [script, ...args], { cwd: repo, encoding: "utf8", env });
   const ok = (...args) => { const r = dt(...args); assert.equal(r.status, 0, `${args.join(" ")}: ${r.stderr}`); return r.stdout; };
-  const dir = path.join(state, "features", key, "f");
+  const dir = path.join(repo, "docs", "features", "f");
   const progress = () => JSON.parse(fs.readFileSync(path.join(dir, "progress.json"), "utf8"));
   const ticket = (id, blocked, touches) => `---\nid: "${id}"\ntitle: Ticket ${id}\nkind: AFK\nblocked_by: [${blocked}]\ntouches: [${touches}]\nverify: web\nunsafe_with: []\n---\nbody\n`;
 
@@ -139,12 +142,13 @@ test("a feature resumes from its folder alone: gates, progress and briefs", () =
   assert.match(ok("gate", "f", "2", "approve"), /next: \/dt-lane f/);
 
   const before = fs.readFileSync(path.join(dir, "progress.json"), "utf8");
-  assert.match(ok("next", "f", "--dry-run", "--no-fetch"), /ticket 00 "Ticket 00"/);
-  assert.equal(fs.readFileSync(path.join(dir, "progress.json"), "utf8"), before, "dry-run must not save");
+  assert.match(ok("next", "f", "--ticket", "00", "--owner", "a", "--check-only", "--no-fetch"), /tickets are not on origin\/main yet/);
+  assert.equal(fs.readFileSync(path.join(dir, "progress.json"), "utf8"), before, "preflight must not save");
 
-  ok("progress", "f", "--ticket", "0", "--status", "review", "--pr", "12", "--no-gh", "--issue", "OV-1", "--todo", "staging check", "--verification", "unit tests at abc123", "--next", "run the staging check");
+  ok("progress", "f", "--ticket", "0", "--status", "review", "--pr", "12", "--no-gh", "--issue", "99", "--todo", "staging check", "--verification", "unit tests at abc123", "--next", "run the staging check");
   const saved = progress().tickets["00"];
-  assert.deepEqual([saved.status, saved.prs[0].number, saved.issues[0].ref, saved.todo[0]], ["review", 12, "OV-1", "staging check"]);
+  assert.deepEqual([saved.status, saved.prs[0].number, saved.todo[0]], ["review", 12, "staging check"]);
+  assert.deepEqual(saved.issues.map((issue) => issue.ref), ["#7", "#99"]);
   ok("progress", "f", "--ticket", "00", "--todo", "replaced");
   assert.deepEqual(progress().tickets["00"].todo, ["replaced"], "updates replace, they do not append");
   assert.match(dt("progress", "f", "--next", "x".repeat(401)).stderr, /keep it under 400/);
@@ -163,9 +167,6 @@ test("a feature resumes from its folder alone: gates, progress and briefs", () =
   assert.match(ok("gate", "f", "3", "approve", "--ticket", "00"), /next: \/dt-lane f/);
   assert.deepEqual([progress().tickets["00"].status, progress().tickets["00"].todo, progress().drift], ["done", undefined, undefined]);
   assert.match(ok("progress", "f", "--ticket", "00"), /"status": "done"/);
-  const log = spawnSync("git", ["log", "--format=%s"], { cwd: path.join(state, "features"), encoding: "utf8" }).stdout;
-  assert.match(log, /dt: G3 approve ticket 00 f/);
-  assert.match(log, /dt: G0 approve f/);
 
   assert.match(ok("resume", "f", "--no-gh"), /1\/2 done · in flight 0 · ready: 01/);
 });

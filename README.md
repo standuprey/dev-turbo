@@ -1,5 +1,7 @@
 # dev-turbo for pi (v0.4)
 
+This version works in any GitHub repository: T2 tickets run in their own worktrees, get GitHub issues and open ready PRs. The Atoms version, with fixed lane clones and Jira, lives in `~/code/dev-turbo-atoms`; install only one of them in a Pi instance.
+
 Prompt templates, one zero-dependency script and extensions for help, read-only status, resume, a selected session project and local argument autocomplete. Files are the memory; you hold the approvals.
 
 ## Principles
@@ -71,16 +73,16 @@ Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when
 | **WARNING (REVIEW)** | Normally use `/dt-review <id>`; direct work can be resumed after confirmation. |
 | **WARNING (MERGED)** | Normally use `/dt-check-merged`; overriding reopens work and requires a fresh PR before closure. |
 
-**Canceling changes nothing.** After selection, the extension displays a short summary with the ticket ID, title and outcome, then asks whether it is the ticket you want to work on. This also applies to explicit IDs, resumes and force takeovers. Declining or canceling leaves claims, Jira and Git unchanged. Use `/dt-status <id>` to read the full ticket and its saved progress. After confirmation, the agent rechecks safety and claims the ticket atomically before Git operations. All current policy warnings are rechecked when claiming. Override consent is explicit, recorded with the claim and never inferred merely from opening the picker.
+**Canceling changes nothing.** After selection, the extension displays a short summary with the ticket ID, title and outcome, then asks whether it is the ticket you want to work on. This also applies to explicit IDs, resumes and force takeovers. Declining or canceling leaves claims and Git unchanged. Use `/dt-status <id>` to read the full ticket and its saved progress. After confirmation, the agent rechecks safety and claims the ticket atomically before Git operations. All current policy warnings are rechecked when claiming. Override consent is explicit, recorded with the claim and never inferred merely from opening the picker.
 
 - `/dt-lane <id>` skips the picker, not ticket confirmation or safety checks. Normal starts require an interactive or RPC confirmation dialog. Non-interactive starts require an explicit `/dt-lane <id> override`; otherwise use `/dt-status <id>` to inspect.
 - `/dt-lane <id> force` explicitly takes over a claim **in its saved checkout**, after you check the previous agent is gone. It does not stop that agent or cancel running commands. Without override, dirty-tree, dependency and module-conflict checks still apply.
 
 Claims in `progress.json` record the Pi session owner, checkout and acquisition time. Another session needs explicit force/override to take a claim; it cannot save ticket progress/PRs with the displaced owner. In-progress work in another lane is context, not an invitation to join that agent.
 
-`/dt-lane <id> override` or CLI `next --ticket ID --override` accepts every ticket-start policy warning: shared modules, unsafe pairs, dependencies, saved blockers, pending plans, owners, checkout/dirty-tree checks, Jira setup policy and completed work. The existing ticket dialog shows Start anyway, not another approval step. Overrides do not approve a plan, stop other processes, discard files or bypass invalid data/the progress lock; native Git/API errors may still need repair. A takeover fences the old owner’s progress writes. Other active ticket claims in a shared checkout are retained, not silently released. Reopened merged work retains its PR facts but cannot close until a fresh PR is recorded. `next --check-only --json` inspects warnings without claims, state writes or Git changes.
+`/dt-lane <id> override` or CLI `next --ticket ID --override` accepts every ticket-start policy warning: shared modules, unsafe pairs, dependencies, saved blockers, pending plans, owners, checkout/dirty-tree checks and completed work. The existing ticket dialog shows Start anyway, not another approval step. Overrides do not approve a plan, stop other processes, discard files or bypass invalid data/the progress lock; native Git/API errors may still need repair. A takeover fences the old owner’s progress writes. Other active ticket claims in a shared checkout are retained, not silently released. Reopened merged work retains its PR facts but cannot close until a fresh PR is recorded. `next --check-only --json` inspects warnings without claims, state writes or Git changes.
 
-Claims do not expire on a timer. A final save with `--release-claim`, or normal session shutdown, releases only that session's claims. In a monorepo checkout, explicitly selecting a different ticket can atomically release the checkout's old claim and acquire the new one when Git has no uncommitted changes and no other local Pi session is using the checkout. Process inspection fails closed if unavailable. This is local CLI detection, not a lock on arbitrary editors or remote agents. Release preserves the old ticket's branch, progress, existing artifacts and review state.
+Claims do not expire on a timer. A final save with `--release-claim`, or normal session shutdown, releases only that session's claims. Release preserves the ticket's branch, progress, existing artifacts and review state.
 
 The session context supplies `--owner <session-ID>` for `dt.mjs next`, ticket progress updates and `pr`. CLI users must supply their own stable owner ID. Reload existing sessions when idle; do not interrupt an agent mid-command.
 
@@ -122,7 +124,7 @@ Selection survives reloads, reopening and forks of the Pi session. A brand-new s
 ```
 dt.mjs -h                                list commands and global help
 dt.mjs <command> -h                      show usage and options for any command
-dt.mjs info                               repo, modality, main branch, lanes, features dir, checks
+dt.mjs info                               repo, main branch, features dir, checks
 dt.mjs config set checks "<cmd>"          remember the affected-targets command for this repo
 dt.mjs resume [<slug>]                    list features, or a short brief of one (refreshes PRs/issues)
 dt.mjs progress <slug> [--ticket ID] ...  show or update the current state in progress.json
@@ -130,15 +132,15 @@ dt.mjs migrate-progress <slug>            migrate legacy ticket lanes to optiona
 dt.mjs status <slug>                      kanban + DAG + unsafe pairs
 dt.mjs next <slug> --owner ID [--ticket ID] [--force]   claim a ready ticket, then branch or create a worktree
 dt.mjs gate <slug> <0|2|3> approve|change|pending   record plan approval (0 new, 2 revised) or ticket closure (3)
-dt.mjs pr <slug> <ID> --body-file F       open and record the PR (draft in monorepo, ready in standalone)
+dt.mjs pr <slug> <ID> --body-file F       open and record the PR, ready for review
 dt.mjs comment --body-file F              manually post a PR comment (not used by /dt-review)
 dt.mjs selftest                           test the pure logic
 ```
 `-h` and `--help` work at every command level, including `config set` and `config set checks`, without requiring a Git repository or running workflow actions. Running `dt.mjs` without arguments shows the top-level help. Run `node --test tests/*.test.mjs` for the CLI, session-state, footer and autocomplete tests. To include the optional Pi-runtime integration test, set `PI_PACKAGE_DIR` to the installed `@earendil-works/pi-coding-agent` package directory.
 
-`--dry-run` prints the git/gh commands instead of running them, without claiming a ticket. Rules it enforces: checkout ownership, `blocked_by` done, no shared `touches`, no `unsafe_with` pair, T2 monorepo lanes only in the configured clones, T2 standalone lanes only from the main checkout; T0/T1 tickets branch `quick/<slug>` in the current checkout. Feature docs inside the repo never count as uncommitted changes.
+`--dry-run` prints the git/gh commands instead of running them, without claiming a ticket. Rules it enforces: checkout ownership, `blocked_by` done, no shared `touches`, no `unsafe_with` pair, T2 lanes only from the main checkout; T0/T1 tickets branch `quick/<slug>` in the current checkout. Feature docs inside the repo never count as uncommitted changes.
 
-Tickets no longer save a `lane` field. Active ownership lives in `claim.checkout`; monorepo lane labels come from the current branches in configured clones, not historical assignments. Standalone tickets optionally save an absolute `worktree` path for resume and cleanup after a claim is released (`progress --ticket ID --worktree PATH`). Legacy lane numbers are discarded on read; legacy absolute paths migrate to `worktree`. Run `dt.mjs migrate-progress <slug>` to persist that migration under the progress lock without changing claims, approvals, timestamps or other saved state.
+Tickets no longer save a `lane` field. Active ownership lives in `claim.checkout`; lane labels come from the current branches in ticket worktrees, not historical assignments. Tickets optionally save an absolute `worktree` path for resume and cleanup after a claim is released (`progress --ticket ID --worktree PATH`). Legacy lane numbers are discarded on read; legacy absolute paths migrate to `worktree`. Run `dt.mjs migrate-progress <slug>` to persist that migration under the progress lock without changing claims, approvals, timestamps or other saved state.
 
 ## Install
 ```
@@ -148,23 +150,20 @@ Tickets no longer save a `lane` field. Active ownership lives in `claim.checkout
 ```
 The extensions use the Node Pi package's existing jiti runtime so `/reload` also refreshes helper modules; no extra dependency install is needed.
 
-Then `/reload` in pi. Edit `~/.pi/agent/dt/config.json`: lanes are the two monorepo clone paths; `checks` is asked once per repo by the grill if left empty. Needs `gh` logged in for issues and PRs.
+Then `/reload` in pi. `~/.pi/agent/dt/config.json` holds each repository's `checks` command; the grill asks for it once per repo if left empty. Needs `gh` logged in for issues and PRs.
 
-## Monorepo PR conventions
+## PR conventions
 
-For `csscompany-enterprise/monorepo` and `csscompany-enterprise/ottercam`, `/dt-start` asks for an existing Jira epic and saves its key as `feature.json.epic` only for T2 projects. T0/T1 assume all work fits inside one ticket and do not require an epic. For T2 tickets, after ticket display and confirmation, `/dt-lane` claims first with `next --claim-only`, creates/reuses a Jira ticket under that epic with a title and 3–5 short description bullets, and saves it with `progress --jira-key KEY --jira-description-file FILE`. In monorepo modality, newly created Jira tickets are also assigned to the user, added to the current active sprint and transitioned to In Progress before branching. The agent discovers the user's Jira account, the active sprint (JQL `sprint in openSprints()`, no board lookup) and available transition rather than hard-coding IDs, and verifies all three updates. Set assignee and sprint with an issue edit, then apply the transition in a separate call that carries no fields. Ambiguous choices or no active sprint require user input; failed updates keep the saved key for retries and block implementation. Established tickets are not reassigned, moved to a newer sprint or reset on resume; standalone behavior is unchanged. Jira access and parent verification use the agent's available Jira tools; failure blocks implementation. New branches use lowercase snake_case, e.g. `ov_777_update_schema`. Resume, lane display, PRs and cleanup use the saved branch; other repos keep `ticket/<feature>-<id>`, and T0/T1 tickets use `quick/<slug>` without a Jira ticket. Existing saved branches and published PR URLs are preserved.
+T2 tickets branch `ticket/<feature>-<id>`; T0/T1 tickets use `quick/<slug>`. Resume, lane display, PRs and cleanup use the saved branch. Target the main branch by default. Split PRs should each contain only their own scope; do not introduce a stack without asking. See [AGENTS.md](AGENTS.md).
 
-In monorepo, target `master` by default. Split PRs should each contain only their own scope; do not introduce a stack without asking. See [AGENTS.md](AGENTS.md).
-
-Keep PRs short: a few plain change bullets under `## Description`, then `## Testing` starting with `unit tests + staging tests` and one suggested staging check. Mention only real merge prerequisites. Leave test implementation, unfinished work and long verification records out of the body. In monorepo modality, new ticket PR titles use `<UPPERCASE-TICKET-ID>: <ticket-title>` (the saved Jira key when available), and the Jira browse URL goes immediately below `## Description`, before the change bullets. `dt.mjs pr` adds a missing link without rewriting the supplied description; extra PRs use the same format. Existing published PRs are preserved. See [AGENTS.md](AGENTS.md) for the format; `dt.mjs pr` takes a short `--body-file`.
+Keep PRs short: a few plain change bullets under `## Description`, then `## Testing` starting with `unit tests + staging tests` and one suggested staging check. Mention only real merge prerequisites. Leave test implementation, unfinished work and long verification records out of the body. `dt.mjs pr` titles T2 ticket PRs `<feature> <ID>: <ticket-title>` and T0/T1 PRs with the ticket title alone, and adds `Closes #<issue>` for the ticket's GitHub issue without rewriting the supplied description. Existing published PRs are preserved. See [AGENTS.md](AGENTS.md) for the format; `dt.mjs pr` takes a short `--body-file`.
 
 ## Day to day
 - `/dt-help` displays the workflow guide directly, without a model call, repository lookup or state changes.
 - `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` and `/dt-status ` suggest that project's ticket IDs; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-approve ` suggests `plan` when one is pending. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
 - New session: open pi in the repository (or a lane) and run `/dt-resume`. Pick a feature; it posts a short brief (phase, gates, board, in-flight tickets with PRs, verification, todo, next step) and lists next commands without a follow-up picker.
-- Monorepo: open pi in clone 1 or clone 2 and run `/dt-lane`, then choose a ready ticket. Locked rows identify work in another session/checkout. Feature docs live in `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones; a small local git repo commits every saved state.
-- Standalone: commit and push T2 ticket files to the main branch, then run `/dt-lane` from the main checkout and choose a ready ticket. After selection, it creates `../<repo>.lane-<id>` and tells you to open pi there; run `/dt-lane <id>` there to resume. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).
-- `/dt-status` displays a saved-state board directly: completed tickets and verification, tickets left, in-flight work, blockers, plan state and next steps. `/dt-status <id>` shows one full ticket, followed by readable saved progress from `progress.json`, including claims, branch, verification, todos, blockers, PRs, Jira metadata and acceptance. Empty fields are omitted. It explicitly reports when no progress is saved for that ticket. It does not call the model, start work, refresh remote facts or write project state. It requires a selected project; it never guesses from a branch or the only feature. Use `/dt-resume` to select or switch projects.
+- Commit and push T2 ticket files to the main branch, then run `/dt-lane` from the main checkout and choose a ready ticket. After selection, it creates `../<repo>.lane-<id>` and tells you to open pi there; run `/dt-lane <id>` there to resume. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).
+- `/dt-status` displays a saved-state board directly: completed tickets and verification, tickets left, in-flight work, blockers, plan state and next steps. `/dt-status <id>` shows one full ticket, followed by readable saved progress from `progress.json`, including claims, branch, verification, todos, blockers, PRs, issues and acceptance. Empty fields are omitted. It explicitly reports when no progress is saved for that ticket. It does not call the model, start work, refresh remote facts or write project state. It requires a selected project; it never guesses from a branch or the only feature. Use `/dt-resume` to select or switch projects.
 - `dt.mjs status <slug>` any time for the full board and DAG; `dt.mjs progress <slug> [--ticket ID]` for the raw saved state.
 
 ## Where to iterate first

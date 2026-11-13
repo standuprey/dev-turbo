@@ -23,7 +23,6 @@ export default async function (pi: ExtensionAPI) {
 		const repo = logic.resolveRepo(ctx.cwd), branch = ctx.sessionManager.getBranch();
 		const project = restoreProject(branch, repo), scope = scopeProposal(branch, repo);
 		const scopeFeature = scope && existsSync(join(repo.featuresBase, scope.slug, "feature.json")) ? JSON.parse(await readFile(join(repo.featuresBase, scope.slug, "feature.json"), "utf8")) : null;
-		if (scope?.tier === "T2" && logic.requiresJira(repo.key) && logic.requireEpic(repo, scope.slug, scope.tier) !== scope.epic) throw new Error("The feature epic changed. Run the grill to revise the scope proposal.");
 		const snapshot = project ? logic.readFeatureStatus(repo, project.slug) : null;
 		let revision;
 		if (withRevision) {
@@ -34,7 +33,7 @@ export default async function (pi: ExtensionAPI) {
 			const contents = await Promise.all(files.map(async (file: string) => { try { return await readFile(file, "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw e; } }));
 			revision = createHash("sha256").update(JSON.stringify({ scope, project, contents })).digest("hex");
 		}
-		return { logic, repo, branch, project, scope, snapshot, revision, existingScope: Boolean(scopeFeature && (!logic.requiresJira(repo.key) || scopeFeature.tier)) };
+		return { logic, repo, branch, project, scope, snapshot, revision, existingScope: Boolean(scopeFeature) };
 	};
 	const exec = async (command: string, args: string[], ctx: ExtensionContext) => {
 		const r = await pi.exec(command, args, { cwd: ctx.cwd, timeout: 120000 });
@@ -75,7 +74,7 @@ export default async function (pi: ExtensionAPI) {
 				const session = ctx.sessionManager.getSessionId();
 				const plan = approvalPlan(initial, name, rest);
 				const title = NAMES[plan.name].label;
-				const extra = plan.id === 0 ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}${initial.scope?.epic ? `\nEpic: ${initial.scope.epic}` : ""}` : "";
+				const extra = plan.id === 0 ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}` : "";
 				const summary = (plan.id === 0 ? plan.note : initial.snapshot.prog.gates.G2?.note) || "Review the saved plan before confirming.";
 				if (!await ctx.ui.confirm(`Approve ${title}?`, `${plan.slug}${extra}\n${summary}`)) return;
 				if (currentCtx?.sessionManager.getSessionId() !== session) throw new Error("Session changed while confirming. No approval was applied.");

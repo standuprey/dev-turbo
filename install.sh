@@ -34,7 +34,7 @@ mkdir -p "$EXTENSIONS/dt-approve"
 cp "$KIT"/extensions/dt-approve/index.ts "$EXTENSIONS/dt-approve"/
 if [ ! -f "$DT/config.json" ]; then
   cp "$KIT/config.example.json" "$DT/config.json"
-  echo "created $DT/config.json - check the lane paths"
+  echo "created $DT/config.json - set each repository's checks command"
 fi
 node "$DT/dt.mjs" selftest
 echo "installed $(ls "$KIT"/prompts/dt-*.md | wc -l | tr -d ' ') prompts -> $PROMPTS; dt.mjs + docs + overlays -> $DT; help + status + approve + resume + session + autocomplete -> $EXTENSIONS"

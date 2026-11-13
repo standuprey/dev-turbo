@@ -21,16 +21,17 @@ test("normalization drops lane numbers and migrates legacy worktree paths", () =
   assert.deepEqual(logic.normalizeProgress(prog), prog);
 });
 
-test("unclaimed monorepo tickets are not locked by legacy lanes; worktrees and claims still lock", () => {
+test("unclaimed tickets are not locked by legacy lanes; worktrees and claims still lock", () => {
   const tickets = [{ id: "01", title: "Ticket", touches: [], blocked_by: [], unsafe_with: [] }];
   const prog = logic.normalizeProgress({ gates: { G1: { state: "approved" }, G2: { state: "approved" } }, tickets: { "01": { status: "in_progress" } } });
   // Also tolerate unmigrated snapshots from older callers.
   prog.tickets["01"].lane = "lane 2";
   const snapshot = { tickets, prog, st: logic.deriveStatuses(tickets, prog) };
-  const repo = { modality: "monorepo", root: "/lane1", lanes: ["/lane1", "/lane2"], branch: "main" };
+  const repo = { root: "/repo", branch: "main" };
   assert.equal(laneOptions(snapshot, repo, "here", logic)[0].state, "resume");
   prog.tickets["01"].worktree = "/repo.lane-01";
-  assert.equal(laneOptions(snapshot, { ...repo, modality: "standalone" }, "here", logic)[0].state, "locked");
-  prog.tickets["01"].claim = { owner: "other", checkout: "/lane1" };
+  assert.equal(laneOptions(snapshot, repo, "here", logic)[0].state, "locked");
+  delete prog.tickets["01"].worktree;
+  prog.tickets["01"].claim = { owner: "other", checkout: "/repo" };
   assert.equal(laneOptions(snapshot, repo, "here", logic)[0].state, "locked");
 });

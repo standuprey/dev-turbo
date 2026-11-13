@@ -9,7 +9,7 @@ import { getMarkdownTheme, type ExtensionAPI, type ExtensionContext } from "@ear
 import { Box, Markdown, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { createModuleLoader } from "./runtime.ts";
 
-type Repo = { key: string; featuresBase: string; jiraRequired?: boolean };
+type Repo = { key: string; featuresBase: string };
 type Project = { slug: string; key: string; base: string; tier: string; type: string; scopeId?: string };
 
 export default async function (pi: ExtensionAPI) {
@@ -156,9 +156,8 @@ export default async function (pi: ExtensionAPI) {
 				const selectedProject = project;
 				const [, , id, option] = text.split(" ");
 				const { snapshot, warnings } = await withLaneFeedback(ctx, `Checking ticket ${id}: repository, claims and start warnings…`, async () => {
-					const { snapshot, logic } = await loadSnapshot(ctx, selectedProject);
-					const setupClaim = selectedProject.tier === "T2" && logic.requiresJira(selectedProject.key) && !snapshot.prog.tickets[id.padStart(2, "0")]?.branch;
-					const checked = await pi.exec("node", [dt, "next", selectedProject.slug, "--ticket", id, "--owner", ctx.sessionManager.getSessionId(), "--check-only", "--json", ...(setupClaim ? ["--claim-only"] : []), ...(option === "force" ? ["--force"] : []), ...(option === "override" ? ["--override"] : [])], { cwd: ctx.cwd, timeout: 60000 });
+					const { snapshot } = await loadSnapshot(ctx, selectedProject);
+					const checked = await pi.exec("node", [dt, "next", selectedProject.slug, "--ticket", id, "--owner", ctx.sessionManager.getSessionId(), "--check-only", "--json", ...(option === "force" ? ["--force"] : []), ...(option === "override" ? ["--override"] : [])], { cwd: ctx.cwd, timeout: 60000 });
 					const checkedData = parseExecJson(checked, "Cannot inspect ticket start warnings");
 					const warnings = checkedData?.warnings;
 					if (!Array.isArray(warnings) || warnings.some((w: unknown) => typeof w !== "string")) throw new Error("Invalid ticket start warnings.");
@@ -218,10 +217,9 @@ export default async function (pi: ExtensionAPI) {
 			if (!tickets.length) throw new Error(`Write the ticket files to ${join(dir, "tickets")} before proposing the plan.`);
 			if (params.tier !== "T2" && tickets.length !== 1) throw new Error("A T0/T1 plan is exactly one ticket (00). Choose T2 for more tickets.");
 			if (params.tier === "T2" && !existsSync(join(dir, "spec.md"))) throw new Error(`Write the brief to ${join(dir, "spec.md")} before proposing a T2 plan.`);
-			const epic = r.jiraRequired ? (await load(pathToFileURL(dt).href)).requireEpic(r, params.slug, params.tier) : null;
 			repo = r;
 			repoCwd = ctx.cwd;
-			pi.appendEntry(SCOPE, { ...params, ...(epic ? { epic } : {}), key: r.key, base: r.featuresBase, proposalId: randomUUID() });
+			pi.appendEntry(SCOPE, { ...params, key: r.key, base: r.featuresBase, proposalId: randomUUID() });
 			refreshSelection(ctx);
 			return { content: [{ type: "text", text: "Plan proposal saved. End the card with: /dt-approve plan. Discussion is not approval." }], details: undefined };
 		},

@@ -2,21 +2,21 @@
 // dt.mjs - the one script behind the /dt-* prompts. Zero dependencies; Node 18+.
 //
 //   dt.mjs -h | <command> -h                            show help (also --help)
-//   dt.mjs info [--json]                                   repo key, modality, main branch, lanes, features dir, checks
+//   dt.mjs info [--json]                                   repo key, main branch, features dir, checks
 //   dt.mjs config set checks "<cmd>"                        remember the checks command for this repo
 //   dt.mjs resume [<slug>] [--json] [--prompt] [--no-gh]    list features, or a short brief of one (refreshes PRs/issues)
 //   dt.mjs progress <slug> [--ticket ID] [updates]          show or update progress.json (current state only)
 //   dt.mjs status <slug> [--no-gh]                          kanban + DAG + unsafe pairs
-//   dt.mjs next <slug> --owner ID [--ticket ID] [--force] [--dry-run]            pick a ready ticket; branch in place (monorepo) or worktree (standalone)
+//   dt.mjs next <slug> --owner ID [--ticket ID] [--force] [--dry-run]            pick a ready ticket; T2 gets a worktree, T0/T1 branch in place
 //   dt.mjs gate <slug> <0|2|3> approve|change|pending [--note "..."] [--ticket ID] [--tier T2 --type service] [--dry-run]
 //   dt.mjs pr <slug> <ID> --body-file FILE [--dry-run]
 //   dt.mjs comment --body-file FILE [--branch B] [--dry-run]
 //   dt.mjs selftest
 //
 // The feature folder is the only memory between sessions:
-//   feature.json   identity: tier, type, modality
+//   feature.json   identity: tier, type
 //   spec.md        T2 brief: intended behavior, goals and constraints, kept current
-//   tickets/       outcome, scope and dependencies (frontmatter); the monorepo's replacement for issues
+//   tickets/       outcome, scope and dependencies (frontmatter); T2 tickets are mirrored as GitHub issues
 //   progress.json  current state only, written by this script: gates, next step, blockers, and per ticket
 //                  status, todo, verification, PRs and issues. Old states live in git history, not in the file.
 //
@@ -72,27 +72,9 @@ export function repoKeyFromUrl(url) {
   return u.split("/").filter(Boolean).slice(-2).join("/");   // local path or unknown form: last two segments
 }
 
-export const requiresJira = (key) => ["csscompany-enterprise/monorepo", "csscompany-enterprise/ottercam"].includes(key.toLowerCase());
-export function jiraKey(value) {
-  const key = String(value || "").trim().toUpperCase();
-  if (!/^[A-Z][A-Z0-9]*-[1-9]\d*$/.test(key)) fail("use a Jira key such as OV-777");
-  return key;
-}
-export function requireEpic(ctx, slug, tier) {
-  const feature = readJson(P(ctx, slug).feature);
-  if ((tier || feature.tier || "T2") !== "T2") return null;
-  const epic = feature.epic;
-  if (requiresJira(ctx.key) && !epic) fail("Ask for the feature's Jira epic, then save it with dt.mjs epic <slug> --key KEY before proposing scope");
-  return epic ? jiraKey(epic) : null;
-}
-export function jiraBranch(key, title) {
-  const slug = String(title).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  if (!slug) fail("ticket title needs a branch slug");
-  return `${jiraKey(key).toLowerCase().replace(/-/g, "_")}_${slug}`;
-}
 
 function loadConfig() {
-  if (!fs.existsSync(CONFIG_PATH)) return { repos: {}, defaults: { modality: "standalone" } };
+  if (!fs.existsSync(CONFIG_PATH)) return { repos: {}, defaults: {} };
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")); } catch (e) { fail(`cannot parse ${CONFIG_PATH}: ${e.message}`); }
 }
 function saveConfig(c) { fs.mkdirSync(DT_DIR, { recursive: true }); fs.writeFileSync(CONFIG_PATH, JSON.stringify(c, null, 2) + "\n"); }
@@ -111,23 +93,17 @@ export function resolveRepo(cwd = process.cwd(), config = loadConfig()) {
   const key = repoKeyFromUrl(url);
   const entry = config.repos?.[key] || {};
   const defaults = config.defaults || {};
-  const modality = entry.modality || defaults.modality || "standalone";
-  const lanes = (entry.lanes || []).map(expand);
-  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-  const laneIndex = lanes.findIndex((p) => real(p) === real(root));
   const gitDir = path.resolve(root, git(["rev-parse", "--git-dir"], { cwd: root }));
   const common = path.resolve(root, git(["rev-parse", "--git-common-dir"], { cwd: root }));
   const isWorktree = gitDir !== common;
   const mainRoot = isWorktree ? path.dirname(common) : root;
   return {
-    key, root, mainRoot, modality, lanes, laneIndex, isWorktree,
+    key, root, mainRoot, isWorktree,
     main: mainBranch(root),
     branch: git(["branch", "--show-current"], { cwd: root, soft: true }) || "",
     checks: entry.checks || defaults.checks || "",
-    jiraRequired: requiresJira(key),
-    featuresInRepo: modality !== "monorepo",
-    // standalone: always the main checkout's copy, so every lane worktree shares one progress.json
-    featuresBase: modality === "monorepo" ? path.join(DT_DIR, "features", key) : path.join(mainRoot, "docs", "features"),
+    // Always the main checkout's copy, so every ticket worktree shares one progress.json.
+    featuresBase: path.join(mainRoot, "docs", "features"),
   };
 }
 
@@ -247,17 +223,6 @@ function updateProgress(ctx, slug, mutate, { touch = true } = {}) {
     writeJson(p.progress, compactProgress(prog));
     return prog;
   });
-}
-
-function commitFeaturesRepo(ctx, slug, msg) {
-  if (ctx.featuresInRepo || DRY) return;
-  const base = path.join(DT_DIR, "features");
-  if (!fs.existsSync(path.join(base, ".git"))) git(["init", "-q"], { cwd: base });
-  const rel = path.relative(base, P(ctx, slug).dir);
-  const paths = ["feature.json", "spec.md", "tickets", "progress.json"].map((f) => path.join(rel, f)).filter((f) => fs.existsSync(path.join(base, f)));
-  if (!paths.length) return;
-  git(["add", "-A", "--", ...paths], { cwd: base, soft: true });
-  git(["commit", "-qm", msg, "--", ...paths], { cwd: base, soft: true });
 }
 
 function cmdMigrateProgress(ctx, slug) {
@@ -493,10 +458,8 @@ export function renderBrief({ slug, feature, prog, tickets, st, phase, lanes = [
   return lines.join("\n");
 }
 
-export function resumeInstructions({ slug, dir, next, modality }) {
-  const where = modality === "monorepo"
-    ? "Ticket work runs in one of the configured lane clones (`node ~/.pi/agent/dt/dt.mjs info` says whether this checkout is one)."
-    : "T2 ticket work runs in the ticket's worktree (`../<repo>.lane-<id>`); T0/T1 tickets, planning and reviews run from the main checkout.";
+export function resumeInstructions({ slug, dir, next }) {
+  const where = "T2 ticket work runs in the ticket's worktree (`../<repo>.lane-<id>`); T0/T1 tickets, planning and reviews run from the main checkout.";
   return [`Resume the dev-turbo feature "${slug}" from the brief above. This session has no other memory of it: the feature folder is the source of truth (${dir}: feature.json, spec.md, tickets/, progress.json).`,
     "",
     `1. Next step: ${next}`,
@@ -514,17 +477,10 @@ function laneInfo(ctx, slug) {
     const id = Object.entries(saved).find(([, t]) => t.branch === b)?.[0] || (b.startsWith(prefix) ? b.slice(prefix.length) : "");
     if (/^\d+$/.test(id)) laneOf[pad(id)] = label;
   };
-  if (ctx.modality === "monorepo") ctx.lanes.forEach((dir, i) => {
-    const b = git(["branch", "--show-current"], { cwd: dir, soft: true });
-    tag(b, `lane ${i + 1}`);
-    labels.push(`lane ${i + 1}${i === ctx.laneIndex ? " (here)" : ""}: ${b || "?"}`);
-  });
-  else {
-    let dir = "";
-    for (const line of (git(["worktree", "list", "--porcelain"], { cwd: ctx.mainRoot, soft: true }) || "").split("\n")) {
-      if (line.startsWith("worktree ")) dir = line.slice(9);
-      else if (line.startsWith("branch refs/heads/")) tag(line.slice("branch refs/heads/".length), path.basename(dir));
-    }
+  let dir = "";
+  for (const line of (git(["worktree", "list", "--porcelain"], { cwd: ctx.mainRoot, soft: true }) || "").split("\n")) {
+    if (line.startsWith("worktree ")) dir = line.slice(9);
+    else if (line.startsWith("branch refs/heads/")) tag(line.slice("branch refs/heads/".length), path.basename(dir));
   }
   return { laneOf, labels };
 }
@@ -593,23 +549,10 @@ function listFeatures(ctx) {
 // ---------- commands ----------
 function cmdInfo(ctx) {
   if (flag("--json")) return console.log(JSON.stringify(ctx, null, 2));
-  const lines = [`repo: ${ctx.key}`, `modality: ${ctx.modality}`, `root: ${ctx.root}${ctx.isWorktree ? " (worktree)" : ""}`, `main: ${ctx.main}`, `branch: ${ctx.branch || "(detached)"}`];
-  if (ctx.modality === "monorepo") lines.push(`lane: ${ctx.laneIndex >= 0 ? `${ctx.laneIndex + 1} of ${ctx.lanes.length}` : "NOT a configured lane"}`, `lanes: ${ctx.lanes.join(" | ") || "(none configured)"}`);
-  lines.push(`features: ${ctx.featuresBase}${ctx.featuresInRepo ? " (main checkout, committed)" : " (outside the repo, shared by the lanes)"}`,
-    `checks: ${ctx.checks || "(unset: ask once, then `dt.mjs config set checks \"<cmd>\"`)"}`);
+  const lines = [`repo: ${ctx.key}`, `root: ${ctx.root}${ctx.isWorktree ? " (worktree)" : ""}`, `main: ${ctx.main}`, `branch: ${ctx.branch || "(detached)"}`,
+    `features: ${ctx.featuresBase} (main checkout, committed)`,
+    `checks: ${ctx.checks || "(unset: ask once, then `dt.mjs config set checks \"<cmd>\"`)"}`];
   console.log(lines.join("\n"));
-}
-
-function cmdEpic(ctx, slug) {
-  const p = P(ctx, slug), key = jiraKey(opt("--key"));
-  fs.mkdirSync(p.dir, { recursive: true });
-  withLock(p.feature, () => {
-    const feature = readJson(p.feature);
-    if (feature.epic && feature.epic !== key && Object.values(loadProgress(ctx, slug).tickets).some((t) => t.jira)) fail("cannot change epic after Jira tickets are linked");
-    if (!DRY) writeJson(p.feature, { slug, ...feature, epic: key });
-  });
-  commitFeaturesRepo(ctx, slug, `dt: epic ${slug} ${key}`);
-  console.log(`${DRY ? "would save" : "saved"} epic ${key} in ${p.feature}; no approval recorded`);
 }
 
 function cmdConfig(ctx, args) {
@@ -632,13 +575,13 @@ function cmdResume(ctx, slug) {
   const d = collect(ctx, slug, { gh: !flag("--no-gh") });
   const { next, suggested } = nextOf(slug, d);
   const brief = renderBrief({ slug, ...d, lanes: laneInfo(ctx, slug).labels, next, suggested });
-  const instructions = resumeInstructions({ slug, dir: d.p.dir, next, modality: ctx.modality });
+  const instructions = resumeInstructions({ slug, dir: d.p.dir, next });
   if (flag("--json")) console.log(JSON.stringify({ slug, dir: d.p.dir, phase: d.phase, next, suggested, brief, instructions }, null, 2));
   else if (flag("--prompt")) console.log(`${brief}\n\n${instructions}`);
   else console.log(brief);
 }
 
-const PROGRESS_UPDATES = ["--release-claim", "--next", "--blocker", "--no-blockers", "--todo", "--no-todo", "--verification", "--status", "--branch", "--worktree", "--pr", "--remove-pr", "--issue", "--remove-issue", "--jira-key", "--jira-description-file"];
+const PROGRESS_UPDATES = ["--release-claim", "--next", "--blocker", "--no-blockers", "--todo", "--no-todo", "--verification", "--status", "--branch", "--worktree", "--pr", "--remove-pr", "--issue", "--remove-issue"];
 function checkText(name, v) {
   v = String(v ?? "").trim();
   if (v.length > MAX_TEXT) fail(`${name} is ${v.length} characters; keep it under ${MAX_TEXT} (details belong in the PR, the spec or the ticket)`);
@@ -653,7 +596,7 @@ function cmdProgress(ctx, slug) {
   mustFeature(ctx, slug);
   const id = opt("--ticket") ? pad(opt("--ticket")) : null;
   if (id) findTicket(loadTickets(ctx, slug), id);
-  if (flag("--lane")) fail("--lane was removed; use --worktree PATH only for standalone worktrees");
+  if (flag("--lane")) fail("--lane was removed; use --worktree PATH");
   if (!PROGRESS_UPDATES.some(flag)) {
     const prog = compactProgress(loadProgress(ctx, slug));
     return console.log(JSON.stringify(id ? { ticket: id, ...(prog.tickets[id] || { status: "todo" }) } : prog, null, 2));
@@ -668,25 +611,9 @@ function cmdProgress(ctx, slug) {
   const useGh = !flag("--no-gh") && !DRY;
   const prs = opts("--pr").map((ref) => { const parsed = parsePrRef(ref); return (useGh && ghPr(ctx, parsed.url || parsed.number)) || parsed; });
   const issues = opts("--issue").map(parseIssue);
-  let jira = null;
-  if (flag("--jira-key") || flag("--jira-description-file")) {
-    if (!id) fail("Jira metadata needs --ticket ID");
-    const epic = requireEpic(ctx, slug) || fail("save the feature epic first");
-    const title = findTicket(loadTickets(ctx, slug), id).title;
-    const description = fs.readFileSync(opt("--jira-description-file") || fail("--jira-key needs --jira-description-file"), "utf8").trim();
-    const lines = description.split(/\r?\n/).filter((line) => line.trim());
-    if (lines.length < 3 || lines.length > 5 || lines.some((line) => !/^[-*] \S/.test(line) || line.length > MAX_TEXT)) fail("Jira description must be 3 to 5 short bullet points");
-    jira = { key: jiraKey(opt("--jira-key")), epic, title, description };
-  }
   const prog = updateProgress(ctx, slug, (prog) => {
     const e = id ? ticketOf(prog, id) : prog;
     if (id) assertClaim(e, opt("--owner"));
-    if (jira) {
-      if (!e.claim || e.claim.owner !== opt("--owner")) fail("claim the ticket with next --claim-only before saving Jira metadata");
-      if (e.jira && e.jira.key !== jira.key) fail("a Jira ticket is already saved; reuse it instead of creating a duplicate");
-      e.jira = jira;
-      upsert(e.issues, { ref: jira.key }, "ref");
-    }
     if (flag("--release-claim")) {
       if (!opt("--owner")) fail("--release-claim needs --owner");
       if (id) e.claim = null;
@@ -702,7 +629,6 @@ function cmdProgress(ctx, slug) {
       if (status) e.status = status;
       if (flag("--branch")) e.branch = checkText("branch", opt("--branch", ""));
       if (flag("--worktree")) {
-        if (ctx.modality !== "standalone") fail("--worktree is only for standalone repos");
         const worktree = checkText("worktree", opt("--worktree", ""));
         if (worktree && !path.isAbsolute(worktree)) fail("--worktree needs an absolute path");
         if (worktree) e.worktree = worktree;
@@ -715,7 +641,6 @@ function cmdProgress(ctx, slug) {
       e.updated = now();
     }
   });
-  commitFeaturesRepo(ctx, slug, `dt: progress ${slug}${id ? ` ticket ${id}` : ""}`);
   const shown = compactProgress(prog);
   console.log(`${DRY ? "(dry-run) would save" : "saved"} ${id ? `ticket ${id}` : "feature"} progress for ${slug}:\n${JSON.stringify(id ? shown.tickets[id] || { status: "todo" } : { next: shown.next, blockers: shown.blockers, todo: shown.todo, issues: shown.issues }, null, 2)}`);
 }
@@ -748,7 +673,7 @@ function describe(ctx, slug, t, where) {
 
 // Feature docs kept in the repo are workflow state, not code: they never block branching.
 function dirty(ctx) {
-  const rel = ctx.featuresInRepo ? path.relative(ctx.root, ctx.featuresBase) : "";
+  const rel = path.relative(ctx.root, ctx.featuresBase);
   const exclude = rel && !rel.startsWith("..") ? [`:(exclude)${rel}`] : [];
   return git(["status", "--porcelain", "--", ".", ...exclude], { cwd: ctx.root });
 }
@@ -774,22 +699,18 @@ function cmdNext(ctx, slug) {
     warnings.add(message);
   };
   const cur = ctx.branch.match(new RegExp(`^ticket/${esc(slug)}-(\\d+)$`));
-  const lane = ctx.modality === "monorepo" && ctx.laneIndex >= 0 ? `lane ${ctx.laneIndex + 1}` : "";
   const d = collect(ctx, slug, { gh: false });
   if (!d.tickets.length) fail(`no tickets for ${slug}`);
   const quick = (d.feature.tier || "T2") !== "T2";
-  const jira = requiresJira(ctx.key) && !quick;
   const current = Object.entries(d.prog.tickets).find(([, t]) => t.branch && t.branch === ctx.branch)?.[0] || (cur && pad(cur[1]));
   const switching = current && d.st[current]?.status !== "done" && wanted && pad(wanted) !== current;
-  enforce(switching && ctx.modality !== "monorepo", `this checkout is on ticket ${current}'s branch; finish it or use another lane`);
+  enforce(switching, `this checkout is on ticket ${current}'s branch; finish it or use another lane`);
   const savedWanted = wanted && d.prog.tickets[pad(wanted)];
   const resume = !switching && current && d.st[current]?.status !== "done" ? current
     : savedWanted?.branch && (["todo", "in_progress", "review"].includes(d.st[pad(wanted)]?.status) || override) ? pad(wanted) : null;
-  enforce(ctx.modality === "monorepo" && ctx.laneIndex < 0 && !quick, `run this inside one of the configured lanes: ${ctx.lanes.join(", ")}`);
-  enforce(ctx.modality === "standalone" && ctx.isWorktree && !resume, "run this from the main checkout, not from a lane worktree");
+  enforce(ctx.isWorktree && !resume, "run this from the main checkout, not from a lane worktree");
   enforce((!resume || switching || force || override) && checkoutDirty(), "working tree is not clean");
   let t, previous, branch, where, here;
-  const released = [];
   const reserve = (prog) => {
     legacyQuickPlan(d.feature, prog);
     const st = deriveStatuses(d.tickets, prog);
@@ -801,50 +722,36 @@ function cmdNext(ctx, slug) {
     const real = (p) => fs.existsSync(p) ? fs.realpathSync(p) : path.resolve(p);
     const occupied = Object.entries(prog.tickets).filter(([id, saved]) => id !== t.id && saved.claim?.checkout && real(saved.claim.checkout) === real(ctx.root));
     if (occupied.length || switching) {
-      enforce(!wanted || ctx.modality !== "monorepo", `this checkout is claimed for ticket ${occupied[0]?.[0] || current}; finish it or use another lane`);
+      enforce(true, `this checkout is claimed for ticket ${occupied[0]?.[0] || current}; finish it or use another lane`);
       enforce(checkoutDirty(), "working tree is not clean");
       let peers = [];
       try { peers = otherCheckoutSessions(ctx.root); }
       catch (error) { enforce(true, `cannot verify no active session for this checkout: ${error.message}`); }
       enforce(peers.length, `this checkout has another active session (PID ${peers.join(", ")}); stop it before switching tickets`);
-      if (override && occupied.length) warnings.add(`this checkout also has ticket claims ${occupied.map(([id]) => id).join(", ")}; those agents are not stopped`);
       // An override shares the checkout rather than unfencing another active ticket.
-      if (!override) for (const [id, saved] of occupied) {
-        released.push([id, saved.claim]);
-        saved.claim = null;
-      }
+      if (override && occupied.length) warnings.add(`this checkout also has ticket claims ${occupied.map(([id]) => id).join(", ")}; those agents are not stopped`);
     }
     previous = { ...e };
-    const checkout = e.claim?.checkout || (ctx.modality === "standalone" ? e.worktree : "");
+    const checkout = e.claim?.checkout || e.worktree;
     enforce(checkout && real(checkout) !== real(ctx.root), `ticket ${t.id} belongs to checkout ${checkout}; open pi there`);
     if (!force) enforce(e.claim && e.claim.owner !== owner, `ticket claimed by ${e.claim?.owner} in ${e.claim?.checkout}; takeover does not stop the previous agent`);
-    if (jira) {
-      let epic = null;
-      if (!flag("--claim-only") || e.jira) {
-        try { epic = requireEpic(ctx, slug); }
-        catch (error) { enforce(true, error.message); }
-      }
-      enforce(!flag("--claim-only") && !e.jira && !e.branch, "claim with next --claim-only, create/reuse a Jira ticket under the epic, then save --jira-key and --jira-description-file before branching");
-      enforce(e.jira && e.jira.epic !== epic, "saved Jira ticket belongs to another epic");
-    }
-    branch = e.branch || (e.jira ? jiraBranch(e.jira.key, e.jira.title) : flag("--claim-only") ? "" : quick ? `quick/${slug}` : `ticket/${slug}-${t.id}`);
+    branch = e.branch || (quick ? `quick/${slug}` : `ticket/${slug}-${t.id}`);
     enforce(resume && (!["in_progress", "review"].includes(e.status) || ctx.branch !== branch) && checkoutDirty(), "working tree is not clean");
-    here = ctx.modality === "monorepo" || quick || ((override || checking) && (ctx.isWorktree || switching || (checkout && real(checkout) !== real(ctx.root)) || occupied.length));
-    where = here ? ctx.root : e.worktree || (flag("--claim-only") || resume ? ctx.root : path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`));
-    if (!here && !resume && !flag("--claim-only")) {
+    here = quick || ((override || checking) && (ctx.isWorktree || switching || (checkout && real(checkout) !== real(ctx.root)) || occupied.length));
+    where = here ? ctx.root : e.worktree || (resume ? ctx.root : path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`));
+    if (!here && !resume) {
       const rel = path.relative(ctx.root, P(ctx, slug).tickets);
       enforce(git(["cat-file", "-e", `origin/${ctx.main}:${rel}`], { cwd: ctx.root, soft: true }) === null, `tickets are not on origin/${ctx.main} yet: commit and push ${rel} first`);
       enforce(fs.existsSync(where), `${where} already exists`);
     }
-    if (ctx.modality === "standalone" && !quick && (ctx.isWorktree || (!resume && !flag("--claim-only")) || (override && checkout))) e.worktree = where;
+    if (!quick && (ctx.isWorktree || !resume || (override && checkout))) e.worktree = where;
     if (override && (e.status === "done" || (e.prs.length && e.prs.every((pr) => pr.state === "merged")))) e.reopened = true;
     Object.assign(e, { status: e.status === "review" ? "review" : "in_progress", branch,
       claim: { owner: owner || "dry-run", checkout: ctx.root, acquired: now(), ...(override ? { override: [...warnings] } : {}) }, updated: now() });
-    if (!resume) e.next = flag("--claim-only") ? "create/reuse Jira ticket under the epic, save its metadata, then run next without --claim-only" : "write scenarios for the ticket's outcome and see them fail";
-    if (flag("--claim-only") && !previous.branch) e.branch = "";
+    if (!resume) e.next = "write scenarios for the ticket's outcome and see them fail";
   };
   if (checking) {
-    // Pure preflight: no lock, observers, claims, Git writes or feature commits.
+    // Pure preflight: no lock, observers, claims or Git writes.
     reserve(loadProgress(ctx, slug));
     const result = { ticket: t.id, warnings: [...warnings] };
     console.log(flag("--json") ? JSON.stringify(result) : result.warnings.length ? result.warnings.join("\n") : "No start warnings.");
@@ -852,11 +759,6 @@ function cmdNext(ctx, slug) {
   }
   const reserved = updateProgress(ctx, slug, reserve);
   for (const message of warnings) console.error(`WARNING (explicit override): ${message}`);
-  if (flag("--claim-only")) {
-    commitFeaturesRepo(ctx, slug, `dt: claim ${slug} ticket ${t.id}`);
-    console.log(`claimed (no branch created):\n${describe(ctx, slug, t, "")}\n${ticketState(reserved.tickets[t.id])}`);
-    return;
-  }
   try {
     if (resume) {
       if (ctx.branch !== branch) {
@@ -870,7 +772,7 @@ function cmdNext(ctx, slug) {
       if (here) {
         run("git", ["switch", "-c", branch, `origin/${ctx.main}`], { cwd: ctx.root });
         run("git", ["push", "-u", "origin", branch], { cwd: ctx.root });
-        console.log(describe(ctx, slug, t, `on ${branch}${lane ? ` (${lane})` : ""}`));
+        console.log(describe(ctx, slug, t, `on ${branch}`));
       } else {
         run("git", ["worktree", "add", "-b", branch, where, `origin/${ctx.main}`], { cwd: ctx.root });
         run("git", ["push", "-u", "origin", branch], { cwd: DRY ? ctx.root : where });
@@ -883,14 +785,11 @@ function cmdNext(ctx, slug) {
       const e = ticketOf(prog, t.id);
       assertClaim(e, owner);
       const created = git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: ctx.root, soft: true }) !== null;
-      if (!created || resume) {
-        prog.tickets[t.id] = previous;
-        for (const [id, claim] of released) ticketOf(prog, id).claim = claim;
-      } else e.next = `setup interrupted: ${String(error.message).slice(0, 300)}; resume /dt-lane ${t.id}`;
+      if (!created || resume) prog.tickets[t.id] = previous;
+      else e.next = `setup interrupted: ${String(error.message).slice(0, 300)}; resume /dt-lane ${t.id}`;
     });
     throw error;
   }
-  commitFeaturesRepo(ctx, slug, `dt: start ${slug} ticket ${t.id}`);
 }
 
 function issueNumber(url) { return +(url.match(/\/(\d+)\s*$/)?.[1] || 0); }
@@ -925,7 +824,6 @@ function createTicketIssues(ctx, slug, p, prog) {
 }
 
 function afterMerge(ctx, slug, id) {
-  if (ctx.modality !== "standalone") return;
   const saved = loadProgress(ctx, slug).tickets[pad(id)];
   const wt = saved?.worktree || path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${id}`);
   if (fs.existsSync(wt) && fs.realpathSync(wt) === fs.realpathSync(ctx.mainRoot)) {
@@ -956,10 +854,9 @@ function cmdGate(ctx, slug, n, decision) {
     const tier = opt("--tier"), type = opt("--type");
     if (!/^T[012]$/.test(tier || "") || !["web", "device", "service", "cli", "mixed"].includes(type || "")) fail("gate 0 needs --tier T0|T1|T2 and --type web|device|service|cli|mixed");
     if (decision !== "approve") return console.log(`G0 ${decision}: ${note || "(no note)"}; revise the plan in the grill`);
-    requireEpic(ctx, slug, tier);
     requirePlan(tier);
     fs.mkdirSync(p.dir, { recursive: true });
-    writeJson(p.feature, { created: now(), ...readJson(p.feature), slug, tier, type, modality: ctx.modality });
+    writeJson(p.feature, { created: now(), ...readJson(p.feature), slug, tier, type });
   }
   mustFeature(ctx, slug);
   const tier = readJson(p.feature).tier || "T2";
@@ -970,7 +867,7 @@ function cmdGate(ctx, slug, n, decision) {
   }
   // GitHub side effects first, outside the lock
   let featureIssue = null, ticketIssues = {};
-  if (decision === "approve" && n !== 3 && tier === "T2" && ctx.modality === "standalone" && !requiresJira(ctx.key)) {
+  if (decision === "approve" && n !== 3 && tier === "T2") {
     featureIssue = createFeatureIssue(ctx, slug, p, loadProgress(ctx, slug));
     ticketIssues = createTicketIssues(ctx, slug, p, { ...loadProgress(ctx, slug), issues: featureIssue ? [featureIssue] : loadProgress(ctx, slug).issues });
   }
@@ -993,29 +890,14 @@ function cmdGate(ctx, slug, n, decision) {
   const label = `G${n} ${decision}${ticket ? ` ticket ${ticket}` : ""}`;
   console.log(`${DRY ? "(dry-run) would record " : ""}${label}${DRY ? "" : ` recorded in ${p.progress}`}`);
   if (n === 3 && decision === "approve") afterMerge(ctx, slug, ticket);
-  commitFeaturesRepo(ctx, slug, `dt: ${label} ${slug}`);
   if (decision === "approve") {
     const tickets = loadTickets(ctx, slug), st = deriveStatuses(tickets, prog);
     console.log(`next: ${suggestNext({ slug, feature: readJson(p.feature), prog, tickets, st })}`);
   }
 }
 
-export function ticketPrContent(ctx, slug, t, saved, body, tier = "T2") {
-  // A T0/T1 task is a single ticket: its title stands alone unless a Jira key was saved.
-  if (tier !== "T2" && !saved?.jira?.key) return { title: t.title, body };
-  if (ctx.modality !== "monorepo") return { title: `${slug} ${t.id}: ${t.title}`, body };
-  const issue = (saved?.issues || []).find((i) => /^[A-Z][A-Z0-9]*-[1-9]\d*$/i.test(i.ref)
-    && (!saved?.jira?.key || i.ref.toUpperCase() === saved.jira.key.toUpperCase()));
-  const key = String(saved?.jira?.key || issue?.ref || t.id).toUpperCase();
-  const title = `${key}: ${t.title}`;
-  const jiraUrl = saved?.jira?.url || issue?.url || (requiresJira(ctx.key) && key.includes("-") ? `https://csscompany.atlassian.net/browse/${key}` : null);
-  if (key.includes("-") && !jiraUrl) fail("save the Jira ticket URL with progress --issue KEY=URL before opening the PR");
-  if (jiraUrl && !body.includes(jiraUrl)) {
-    if (!/^## Description\r?$/m.test(body)) fail("PR body needs ## Description for the Jira ticket URL");
-    body = body.replace(/^(## Description)\r?\n?/m, `$1\n${jiraUrl}\n\n`);
-  }
-  return { title, body };
-}
+// A T0/T1 task is a single ticket, so its title stands alone; T2 titles name the feature and ticket.
+export const ticketPrTitle = (slug, t, tier = "T2") => tier === "T2" ? `${slug} ${t.id}: ${t.title}` : t.title;
 
 function cmdPr(ctx, slug, id) {
   const bodyFile = opt("--body-file");
@@ -1030,13 +912,14 @@ function cmdPr(ctx, slug, id) {
     if (head !== want) fail(`on ${head}, expected ${want}`);
     if (!bodyFile) fail("pr needs --body-file FILE: a short ## Description and ## Testing with unit tests + staging tests");
     const saved = loadProgress(ctx, slug).tickets[t.id];
-    ({ title, body } = ticketPrContent(ctx, slug, t, saved, fs.readFileSync(bodyFile, "utf8"), readJson(p.feature).tier || "T2"));
+    title = ticketPrTitle(slug, t, readJson(p.feature).tier || "T2");
+    body = fs.readFileSync(bodyFile, "utf8");
     const closes = (saved?.issues || []).filter(isGithubIssue).map((i) => `Closes ${i.ref}`);
     body += closes.length ? `\n\n${closes.join("\n")}\n` : "";
   }
   const record = (url) => {
     if (!t || !url) return;
-    const pr = ghPr(ctx, url) || { ...parsePrRef(url), branch: head, base: ctx.main, state: ctx.modality === "monorepo" ? "draft" : "open", checked: now() };
+    const pr = ghPr(ctx, url) || { ...parsePrRef(url), branch: head, base: ctx.main, state: "open", checked: now() };
     updateProgress(ctx, slug, (prog) => {
       const e = ticketOf(prog, t.id);
       assertClaim(e, opt("--owner"));
@@ -1044,7 +927,6 @@ function cmdPr(ctx, slug, id) {
       upsert(e.prs, pr, "number");
       Object.assign(e, { status: e.status === "done" ? "done" : "review", next: `/dt-review ${slug} ${t.id}`, updated: now() });
     });
-    commitFeaturesRepo(ctx, slug, `dt: PR for ${slug} ticket ${t.id}`);
   };
   const existing = sh("gh", ["pr", "view", head, "--json", "url", "--jq", ".url"], { cwd: ctx.root, soft: true });
   const reopening = t && loadProgress(ctx, slug).tickets[t.id]?.reopened;
@@ -1053,11 +935,9 @@ function cmdPr(ctx, slug, id) {
   run("git", ["push", "-u", "origin", head], { cwd: ctx.root });
   const tmp = path.join(os.tmpdir(), `dt-pr-${head.replace(/[^\w]+/g, "-")}.md`);
   fs.writeFileSync(tmp, body);
-  const args = ["pr", "create", "--base", ctx.main, "--head", head, "--title", title, "--body-file", tmp];
-  if (ctx.modality === "monorepo") args.push("--draft");
-  const url = run("gh", args, { cwd: ctx.root });
+  const url = run("gh", ["pr", "create", "--base", ctx.main, "--head", head, "--title", title, "--body-file", tmp], { cwd: ctx.root });
   record(url);
-  console.log(`${ctx.modality === "monorepo" ? "draft " : ""}PR: ${url || "(dry-run)"}`);
+  console.log(`PR: ${url || "(dry-run)"}`);
 }
 
 function cmdComment(ctx) {
@@ -1073,7 +953,7 @@ function selftest() {
   let bad = 0;
   const t = (name, ok) => { console.log(`${ok ? "ok  " : "FAIL"} ${name}`); if (!ok) bad++; };
   const throws = (fn, re) => { try { fn(); return false; } catch (e) { return re.test(e.message); } };
-  t("repo key ssh alias", repoKeyFromUrl("git@github-work:csscompany-enterprise/monorepo.git") === "csscompany-enterprise/monorepo");
+  t("repo key ssh alias", repoKeyFromUrl("git@github-work:org/monorepo.git") === "org/monorepo");
   t("repo key https", repoKeyFromUrl("https://github.com/Witney-AI/app.git") === "Witney-AI/app");
   t("repo key ssh url", repoKeyFromUrl("ssh://git@github.com/org/repo") === "org/repo");
   t("repo key local path", repoKeyFromUrl("/tmp/x/y/origin.git") === "y/origin");
@@ -1131,12 +1011,11 @@ const HELP = {
     commands: [
       ["info", "Show repository configuration and context"],
       ["config", "Update repository configuration"],
-      ["epic", "Save the feature's Jira epic without approving scope"],
       ["resume", "List features, or show a short brief of one"],
       ["progress", "Show or update a feature's current state"],
       ["migrate-progress", "Replace legacy ticket lanes with optional worktree paths"],
       ["status", "Show the feature board"],
-      ["next", "Start a ready ticket in a branch or worktree"],
+      ["next", "Start a ready ticket in a worktree (T2) or branch (T0/T1)"],
       ["gate", "Record a gate decision and its follow-up actions"],
       ["pr", "Open a ticket pull request"],
       ["comment", "Post review findings on a pull request"],
@@ -1146,13 +1025,8 @@ const HELP = {
   },
   info: {
     usage: "dt.mjs info [--json]",
-    description: "Show repo key, modality, root, main branch, lanes, features directory and checks.",
+    description: "Show repo key, root, main branch, features directory and checks.",
     options: [["--json", "Print the repository context as JSON"]],
-  },
-  epic: {
-    usage: "dt.mjs epic <slug> --key KEY",
-    description: "Save a confirmed Jira epic key in feature.json during the grill. Creates draft metadata, never records approval.",
-    options: [["--key KEY", "Jira epic key, such as OV-777"]],
   },
   config: {
     usage: 'dt.mjs config set checks "<cmd>"',
@@ -1187,11 +1061,10 @@ const HELP = {
       ["--no-todo", "Clear the todo list"],
       ["--verification TEXT", "Ticket: what was verified, and at which commit"],
       ["--status todo|in_progress|review|done", "Ticket: correct the status"],
-      ["--branch NAME / --worktree PATH", "Ticket branch / optional standalone worktree path"],
+      ["--branch NAME / --worktree PATH", "Ticket branch / optional absolute worktree path"],
       ["--pr NUMBER|URL", "Ticket: add or refresh a PR (repeatable)"],
       ["--remove-pr NUMBER|URL", "Ticket: forget a PR"],
-      ["--issue REF[=URL]", "Add an issue: OV-713, #12, or a URL (repeatable)"],
-      ["--jira-key KEY --jira-description-file FILE", "Claimed ticket: save Jira key, epic, title and 3–5 description bullets"],
+      ["--issue REF[=URL]", "Add an issue: #12, a tracker key, or a URL (repeatable)"],
       ["--remove-issue REF", "Forget an issue"],
       ["--no-gh", "Do not look PRs up on GitHub"],
       ["--dry-run", "Print the result without saving"],
@@ -1204,12 +1077,12 @@ const HELP = {
   },
   next: {
     usage: "dt.mjs next <slug> --owner ID [--ticket ID] [--force|--override] [--check-only] [--dry-run]",
-    description: "Pick a ready ticket by default. An explicit --override accepts all ticket-start policy warnings, including dependencies, shared touches, unsafe pairs, saved blockers, pending plans, ownership and checkout conflicts, or completed work. Invalid IDs/data, the progress lock and native Git errors are not bypassed.\nT2 monorepo: branch in the current lane. T2 standalone: create a worktree from the main checkout.\nT0/T1: branch quick/<slug> in the current checkout, without Jira setup.\nOn the ticket's branch already: print its saved state to resume from.",
-    options: [["--ticket ID", "Select a specific ticket instead of the first ready ticket"], ["--owner ID", "Session ID claiming this ticket atomically before branching"], ["--force", "Explicit ticket only: take over a claim in its saved checkout; does not stop the old agent"], ["--override", "Explicit ticket only: accept all start warnings; takeover does not stop other agents and does not discard local files"], ["--check-only", "Read-only start preflight: no claims, state writes or Git changes"], ["--json", "With --check-only, print the ticket ID and complete warning list as JSON"], ["--claim-only", "Claim without Git side effects; create/save Jira metadata before branching"], ["--no-fetch", "Do not fetch the main branch first"], ["--dry-run", "Print Git commands instead of running them"]],
+    description: "Pick a ready ticket by default. An explicit --override accepts all ticket-start policy warnings, including dependencies, shared touches, unsafe pairs, saved blockers, pending plans, ownership and checkout conflicts, or completed work. Invalid IDs/data, the progress lock and native Git errors are not bypassed.\nT2: create a worktree from the main checkout, then open pi there to resume.\nT0/T1: branch quick/<slug> in the current checkout.\nOn the ticket's branch already: print its saved state to resume from.",
+    options: [["--ticket ID", "Select a specific ticket instead of the first ready ticket"], ["--owner ID", "Session ID claiming this ticket atomically before branching"], ["--force", "Explicit ticket only: take over a claim in its saved checkout; does not stop the old agent"], ["--override", "Explicit ticket only: accept all start warnings; takeover does not stop other agents and does not discard local files"], ["--check-only", "Read-only start preflight: no claims, state writes or Git changes"], ["--json", "With --check-only, print the ticket ID and complete warning list as JSON"], ["--no-fetch", "Do not fetch the main branch first"], ["--dry-run", "Print Git commands instead of running them"]],
   },
   gate: {
     usage: "dt.mjs gate <slug> <0|2|3> <approve|change|pending> [options]",
-    description: "Record a gate decision in progress.json: G0 creates the project and approves its plan, G2 re-approves a revised plan, G3 closes a ticket.\nRecord pending before asking for a decision, so a new session knows a gate is waiting.\nApproval may create GitHub issues (standalone T2) or clean up a worktree.",
+    description: "Record a gate decision in progress.json: G0 creates the project and approves its plan, G2 re-approves a revised plan, G3 closes a ticket.\nRecord pending before asking for a decision, so a new session knows a gate is waiting.\nT2 plan approval creates GitHub issues; ticket closure removes the ticket worktree.",
     options: [
       ["--note TEXT", "A short note kept with the gate"],
       ["--ticket ID", "Ticket being merged (required for G3)"],
@@ -1221,7 +1094,7 @@ const HELP = {
   },
   pr: {
     usage: "dt.mjs pr <slug> <ID> --body-file FILE [--dry-run]",
-    description: "Push the current branch and open a PR (draft in monorepo, ready in standalone).\nTicket PRs require the saved branch (Jira snake_case for T2 in the two CSS repos; quick/<slug> for T0/T1; ticket/<slug>-<ID> elsewhere) and are recorded in progress.json.",
+    description: "Push the current branch and open a PR ready for review.\nTicket PRs require the saved branch (ticket/<slug>-<ID> for T2; quick/<slug> for T0/T1) and are recorded in progress.json.",
     options: [["--body-file FILE", "Short ## Description and ## Testing: unit tests + staging tests (required)"], ["--dry-run", "Print push/PR creation commands instead of running them"]],
   },
   comment: {
@@ -1266,7 +1139,6 @@ if (isMain) {
       const slug = rest[0] && !rest[0].startsWith("--") ? rest[0] : "";
       if (cmd === "info") cmdInfo(ctx);
       else if (cmd === "config") cmdConfig(ctx, rest);
-      else if (cmd === "epic") cmdEpic(ctx, slug);
       else if (cmd === "resume") cmdResume(ctx, slug);
       else if (cmd === "migrate-progress") cmdMigrateProgress(ctx, slug || fail("usage: dt.mjs migrate-progress <slug>"));
       else if (cmd === "progress") cmdProgress(ctx, slug || fail("usage: dt.mjs progress <slug> [--ticket ID] [updates]"));

@@ -8,16 +8,18 @@ import { join } from "node:path";
 import { SCOPE } from "../extensions/dt-session/gates.mjs";
 
 const pkg = process.env.PI_PACKAGE_DIR;
-for (const key of ["test/repo", "csscompany-enterprise/monorepo", "csscompany-enterprise/ottercam"]) test(`Pi runtime (${key}): plan approval, cancelled/stale proposals, revised plans and /dt-check-merged closure`, { skip: !pkg }, async (t) => {
+test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /dt-check-merged closure", { skip: !pkg }, async (t) => {
+	const key = "test/repo";
 	const dir = await mkdtemp(join(tmpdir(), "dt-approve-test-")), previous = process.env.DT_DIR;
 	process.env.DT_DIR = dir;
 	t.after(async () => { if (previous === undefined) delete process.env.DT_DIR; else process.env.DT_DIR = previous; await rm(dir, { recursive: true, force: true }); });
-	const repo = { key, featuresBase: join(dir, "features", key), jiraRequired: key !== "test/repo" };
+	// The real CLI reads feature docs from the repository's docs/features.
+	const repo = { key, featuresBase: join(dir, "docs", "features") };
 	execFileSync("git", ["init", "-q", dir]);
 	execFileSync("git", ["remote", "add", "origin", `https://github.com/${key}.git`], { cwd: dir });
 	execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], { cwd: dir });
-	await writeFile(join(dir, "config.json"), JSON.stringify({ defaults: { modality: "monorepo" } }));
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "config.json"), JSON.stringify({ defaults: {} }));
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	const require = createRequire(join(pkg, "package.json")), { createJiti } = require("jiti");
 	// Match Pi's legacy pi-ai import mapping, which also exposes TypeBox.
 	const ai = join(dir, "pi-ai.mjs");
@@ -73,10 +75,6 @@ for (const key of ["test/repo", "csscompany-enterprise/monorepo", "csscompany-en
 	await writeFile(join(folder, "tickets/00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\n');
 	await assert.rejects(proposal.execute("id", params, undefined, undefined, ctx), /brief/);
 	await writeFile(spec, "Brief v1");
-	if (repo.jiraRequired) {
-		await assert.rejects(proposal.execute("id", params, undefined, undefined, ctx), /epic/);
-		await writeFile(join(folder, "feature.json"), JSON.stringify({ epic: "OV-100" }));
-	}
 	await proposal.execute("id", params, new AbortController().signal, undefined, ctx);
 	assert.equal(gateCalls.length, 0);
 	assert.deepEqual((await command.getArgumentCompletions("pl")).map((i) => i.value), ["plan"]);
@@ -181,7 +179,6 @@ for (const key of ["test/repo", "csscompany-enterprise/monorepo", "csscompany-en
 		await assert.rejects(proposal.execute("id", { ...params, slug, tier }, undefined, undefined, ctx), /exactly one ticket/);
 		await rm(join(quickFolder, "tickets/01-extra.md"));
 		await proposal.execute("id", { ...params, slug, tier }, undefined, undefined, ctx);
-		assert.equal(entries.filter((e) => e.customType === SCOPE).at(-1).data.epic, undefined);
 		const before = gateCalls.length;
 		await command.handler("plan", ctx);
 		assert.equal(gateCalls.length, before + 1);
