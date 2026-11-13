@@ -1,11 +1,12 @@
 /** Selected dev-turbo project: explicit confirmation, session persistence, input defaults. */
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import { getMarkdownTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Markdown, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Box, Markdown, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { createModuleLoader } from "./runtime.ts";
 
 type Repo = { key: string; featuresBase: string; jiraRequired?: boolean };
@@ -17,7 +18,9 @@ export default async function (pi: ExtensionAPI) {
 	const { createProjectFooter } = await load("./footer.mjs");
 	const { WORKFLOW, createBranchReader } = await load("./branch.mjs");
 	const TICKET_MESSAGE = "dt-ticket";
-	const { SCOPE, QUICK, scopeProposal, quickGate } = await load("./gates.mjs");
+	const { createTicketRenderer } = await load("./ticket-screenshots.mjs");
+	const { SCOPE, scopeProposal } = await load("./gates.mjs");
+	const { approvalGuard } = await load("./approval-guard.mjs");
 	const dt = join(process.env.DT_DIR || join(homedir(), ".pi", "agent", "dt"), "dt.mjs");
 	let project: Project | null = null;
 	let repo: Repo | null = null;
@@ -25,7 +28,7 @@ export default async function (pi: ExtensionAPI) {
 	let currentCtx: ExtensionContext | undefined;
 	const branchReader = createBranchReader();
 	let cachedBranch: unknown, cachedRepo: Repo | null | undefined, cachedCwd: string | undefined;
-	let draft: any = null, quick: any[] = [], grilling = false, contextContent: string | undefined;
+	let draft: any = null, grilling = false, contextContent: string | undefined;
 	let footerSession: string | undefined, requestFooterRender: (() => void) | undefined;
 	let status: string | undefined;
 	const laneProjects = new Set<string>();
@@ -74,7 +77,6 @@ export default async function (pi: ExtensionAPI) {
 		const saved = restoreProject(branch, repo);
 		draft = scopeProposal(branch, repo);
 		grilling = branch.findLast((e: any) => e.customType === WORKFLOW)?.data?.cwd === ctx.cwd;
-		quick = saved && saved.tier !== "T2" ? ["slices", "review", "ticket"].map((g) => quickGate(branch, saved, g)).filter(Boolean) : [];
 		if (saved !== project) {
 			project = saved;
 			updateUI(ctx);
@@ -117,38 +119,7 @@ export default async function (pi: ExtensionAPI) {
 		if (repo.key !== selectedProject.key || repo.featuresBase !== selectedProject.base) throw new Error("Repository changed. Run /dt-resume before choosing a ticket.");
 		return { logic, repo, snapshot: logic.readFeatureStatus(repo, selectedProject.slug) };
 	};
-	pi.registerMessageRenderer(TICKET_MESSAGE, (msg, { outputPad }, theme) => {
-		const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
-		box.addChild(new Markdown(String(msg.content), 0, 0, getMarkdownTheme()));
-		return box;
-	});
-	pi.registerCommand("dt-show", {
-		description: "Display a ticket without claiming or starting it",
-		handler: async (args, ctx) => {
-			refreshSelection(ctx);
-			try {
-				if (!project) throw new Error("No dev-turbo project selected. Run /dt-resume [slug].");
-				if (project.tier !== "T2") throw new Error("/dt-show needs a T2 feature with tickets.");
-				let id = args.trim();
-				if (id && !/^\d{1,2}$/.test(id)) throw new Error("Usage: /dt-show [ticket ID]. Switch projects with /dt-resume.");
-				const selectedProject = project;
-				const { snapshot } = await loadSnapshot(ctx, selectedProject);
-				const { displayTicket, readTicketPreview, ticketStatus } = await load("./ticket-preview.mjs");
-				if (!id) {
-					if (!ctx.hasUI) throw new Error("In non-interactive mode use /dt-show <id>.");
-					const labels = snapshot.tickets.map((t: { id: string; title: string }) => `${t.id} · ${t.title} · ${ticketStatus(snapshot, t.id)}`);
-					if (!labels.length) throw new Error("No tickets to display.");
-					const choice = await ctx.ui.select(`Show a ticket · ${selectedProject.slug}`, labels);
-					if (!choice) return;
-					id = snapshot.tickets[labels.indexOf(choice)].id;
-				}
-				const ticket = await readTicketPreview(snapshot, id);
-				displayTicket(pi, selectedProject, ticket, ticketStatus(snapshot, ticket.id));
-			} catch (e) {
-				ctx.ui.notify(e instanceof Error ? e.message : String(e), "warning");
-			}
-		},
-	});
+	pi.registerMessageRenderer(TICKET_MESSAGE, createTicketRenderer({ Box, Markdown, Text, getMarkdownTheme }));
 	pi.on("input", async (event, ctx) => {
 		if (!/^\/dt-[\w-]+(?:\s|$)/.test(event.text)) return { action: "continue" };
 		refreshSelection(ctx);
@@ -204,21 +175,18 @@ export default async function (pi: ExtensionAPI) {
 		contextContent ??= [
 			project ? `Selected dev-turbo project: ${project.slug} (${project.tier}, ${project.type}), repo ${project.key}, feature base ${project.base}.` : "No project selected. Use /dt-start or /dt-resume.",
 			`Lane claim owner for this session: ${ctx.sessionManager.getSessionId()}. Pass --owner ${ctx.sessionManager.getSessionId()} to dt.mjs next, ticket progress updates and pr. Never use another session's owner. Acquire the claim with next before touching ticket code; if refused, STOP. On a work handover save --release-claim with the final progress update. Force is only allowed when the user explicitly ran /dt-lane <id> force; it does not stop the previous agent.`,
-			"Only user /dt-approve commands record approval: scope, architecture, slices, ticket, drift. Discussion and adjustments never approve a gate. Do not run dt.mjs gate approve yourself or inject /dt-approve as a user message. End every pending gate card with its exact /dt-approve command. Slash commands omit the selected slug; dt.mjs CLI still needs it.",
-			draft ? `Pending scope proposal: ${JSON.stringify(draft)}. User next: /dt-approve scope.` : "At the end of a grill, call dt_propose_scope to save the proposal, then ask for /dt-approve scope.",
-			quick.length ? `Quick-task gates: ${JSON.stringify(quick)}. An approved slices gate lets /dt-quick continue with coding; an approved ticket gate means quick-task acceptance is recorded.` : "",
+			"Only user commands record approval: /dt-approve plan for a new or revised plan; /dt-check-merged closes tickets whose PRs the user merged. Discussion never approves. Do not run dt.mjs gate approve yourself or inject /dt-approve as a user message. Slash commands omit the selected slug; dt.mjs CLI still needs it.",
+			draft ? `Pending plan proposal: ${JSON.stringify(draft)}. User next: /dt-approve plan.` : "At the end of a grill, give a short task summary and ask the user to choose T0/T1/T2. Never infer, recommend or default to a tier. After an explicit choice, write the plan files, call dt_propose_plan with that tier, then ask for /dt-approve plan. Choosing a tier in chat does not approve anything.",
 		].filter(Boolean).join("\n");
 		event.systemPromptOptions.sections.dt_project_context = contextContent;
 	});
 
 	pi.on("tool_call", (event) => {
-		if (event.toolName === "bash" && /dt\.mjs[\s\S]*(?:\bgate\b[\s\S]*\bapprove\b|\bprogress\b[\s\S]*--status\s+["']?done\b)/.test(String(event.input.command || ""))) {
-			return { block: true, reason: "Approvals are user commands. Ask the user to run /dt-approve <gate>; do not record approval from discussion." };
-		}
+		if (event.toolName === "bash") return approvalGuard(String(event.input.command || ""));
 	});
 	pi.registerTool({
-		name: "dt_propose_scope", label: "Propose Scope", exposure: "model-only",
-		description: "Save or revise the grill's scope proposal. This does not approve anything or select a project. The user must run /dt-approve scope.",
+		name: "dt_propose_plan", label: "Propose plan", exposure: "model-only",
+		description: "Save or revise the grill's plan proposal after the user explicitly chose T0/T1/T2 and the plan files are written (tickets/, plus spec.md for T2). Never infer or recommend the tier. This does not approve anything or select a project. The user must run /dt-approve plan.",
 		parameters: Type.Object({
 			slug: Type.String({ pattern: "^[a-z0-9]+(-[a-z0-9]+)*$" }),
 			tier: Type.Union([Type.Literal("T0"), Type.Literal("T1"), Type.Literal("T2")]),
@@ -228,29 +196,17 @@ export default async function (pi: ExtensionAPI) {
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			if (!validSlug(params.slug)) throw new Error("Use a lowercase kebab-case slug.");
 			const r = await readRepo(ctx);
-			const epic = r.jiraRequired ? (await load(pathToFileURL(dt).href)).requireEpic(r, params.slug) : null;
+			const dir = join(r.featuresBase, params.slug);
+			const tickets = existsSync(join(dir, "tickets")) ? readdirSync(join(dir, "tickets")).filter((f) => f.endsWith(".md")) : [];
+			if (!tickets.length) throw new Error(`Write the ticket files to ${join(dir, "tickets")} before proposing the plan.`);
+			if (params.tier !== "T2" && tickets.length !== 1) throw new Error("A T0/T1 plan is exactly one ticket (00). Choose T2 for more tickets.");
+			if (params.tier === "T2" && !existsSync(join(dir, "spec.md"))) throw new Error(`Write the brief to ${join(dir, "spec.md")} before proposing a T2 plan.`);
+			const epic = r.jiraRequired ? (await load(pathToFileURL(dt).href)).requireEpic(r, params.slug, params.tier) : null;
 			repo = r;
 			repoCwd = ctx.cwd;
 			pi.appendEntry(SCOPE, { ...params, ...(epic ? { epic } : {}), key: r.key, base: r.featuresBase, proposalId: randomUUID() });
 			refreshSelection(ctx);
-			return { content: [{ type: "text", text: "Scope proposal saved. End the card with: /dt-approve scope. Discussion is not approval." }], details: undefined };
-		},
-	});
-	pi.registerTool({
-		name: "dt_propose_quick_gate", label: "Propose quick-task gate", exposure: "model-only",
-		description: "Save a T0/T1 scenario-plan (slices), required-review checkpoint (review), or acceptance proposal (ticket). Only /dt-approve records human approval.",
-		parameters: Type.Object({ gate: Type.Union([Type.Literal("slices"), Type.Literal("review"), Type.Literal("ticket")]), note: Type.String({ maxLength: 400 }), branch: Type.Optional(Type.String({ maxLength: 200 })) }),
-		async execute(_id, params, _signal, _onUpdate, ctx) {
-			refreshSelection(ctx);
-			if (!project || project.tier === "T2") throw new Error("This proposal tool is only for a selected T0/T1 task.");
-			if (params.gate === "ticket" && project.tier === "T1" && quickGate(ctx.sessionManager.getBranch(), project, "slices")?.state !== "approved") throw new Error("Approve the T1 scenario plan with /dt-approve slices before building or proposing ticket acceptance.");
-			if (params.gate === "ticket" && (!params.branch || params.branch.startsWith("-"))) throw new Error("Save the quick PR branch before proposing ticket acceptance.");
-			if (params.gate === "ticket") {
-				const review = quickGate(ctx.sessionManager.getBranch(), project, "review");
-				if (review?.state === "pending") pi.appendEntry(QUICK, { ...review, state: "done" });
-			}
-			pi.appendEntry(QUICK, { ...params, slug: project.slug, key: project.key, scopeId: project.scopeId, state: "pending" });
-			return { content: [{ type: "text", text: params.gate === "review" ? "Review checkpoint saved. User next: /dt-review." : "Quick gate proposal saved. User next: /dt-approve " + params.gate }], details: undefined };
+			return { content: [{ type: "text", text: "Plan proposal saved. End the card with: /dt-approve plan. Discussion is not approval." }], details: undefined };
 		},
 	});
 }

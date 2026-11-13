@@ -1,6 +1,6 @@
 /** Cache session metadata without rebuilding the whole history on every input. */
 export const WORKFLOW = "dt-workflow";
-const relevant = (entry) => entry.type === "custom" && ["dt-project", "dt-scope-proposal", "dt-quick-gate", WORKFLOW].includes(entry.customType);
+const relevant = (entry) => entry.type === "custom" && ["dt-project", "dt-scope-proposal", WORKFLOW].includes(entry.customType);
 
 export function createBranchReader() {
   let cache;

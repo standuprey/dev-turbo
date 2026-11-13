@@ -15,18 +15,19 @@ export function ticketStatus(snapshot, id) {
   return snapshot.st[id].status.replaceAll("_", " ").toUpperCase();
 }
 
-export function displayTicket(pi, project, ticket, status) {
-  pi.sendMessage({ customType: TICKET_MESSAGE, content: status ? `Status: ${status}\n\n${ticket.content}` : ticket.content, display: true,
-    details: { slug: project.slug, id: ticket.id, file: ticket.file } });
+export function displayTicket(pi, project, ticket, status, progress, screenshots = [], screenshotExport) {
+  const content = [status ? `Status: ${status}` : "", ticket.content, progress].filter(Boolean).join("\n\n");
+  pi.sendMessage({ customType: TICKET_MESSAGE, content, display: true,
+    details: { slug: project.slug, id: ticket.id, file: ticket.file, ...(screenshots.length ? { screenshots } : {}), ...(screenshotExport ? { screenshotExport } : {}) } });
 }
 
-// Keep lane confirmation compact; /dt-show remains the full-ticket viewer.
+// Keep lane confirmation compact; /dt-status <id> remains the full-ticket viewer.
 export function summarizeTicket(ticket) {
   const body = ticket.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
   const outcome = body.match(/^(?:#{1,6}[ \t]+Outcome[ \t]*:?[ \t]*|\*\*Outcome:?\*\*[ \t]*:?[ \t]*)(?:\r?\n|$)([\s\S]*)/im)?.[1];
   const text = outcome?.split(/^#{1,6}\s|^\*\*[^*\n]+\*\*/m)[0].replace(/\s+/g, " ").trim();
   const summary = text && (text.length > 400 ? `${text.slice(0, 397).trimEnd()}…` : text);
-  return [`${ticket.id} · ${ticket.title}`, summary, `Full ticket: /dt-show ${ticket.id}`].filter(Boolean).join("\n\n");
+  return [`${ticket.id} · ${ticket.title}`, summary, `Full ticket: /dt-status ${ticket.id}`].filter(Boolean).join("\n\n");
 }
 
 export async function confirmTicket({ pi, ctx, project, snapshot, id, force = false }) {

@@ -34,29 +34,35 @@ function fixture(t, name = "monorepo") {
   fs.writeFileSync(description, "- Update schema for f ticket 00.\n- Keep existing consumers working.\n- Verify migration behavior.\n");
   const plan = () => {
     ok("epic", "f", "--key", "OV-100");
-    ok("gate", "f", "0", "approve", "--tier", "T2", "--type", "service");
     fs.mkdirSync(path.join(feature, "tickets"));
     fs.writeFileSync(path.join(feature, "spec.md"), "# Spec\n");
     for (const id of ["00", "01"]) fs.writeFileSync(path.join(feature, "tickets", `${id}.md`), `---\nid: ${id}\ntitle: Update schema\ntouches: [module${id}]\nblocked_by: []\nunsafe_with: []\n---\nbody\n`);
-    fs.writeFileSync(path.join(feature, "progress.json"), JSON.stringify({ gates: { G0: { state: "approved" }, G1: { state: "approved" }, G2: { state: "approved" } } }));
+    ok("gate", "f", "0", "approve", "--tier", "T2", "--type", "service");
+    assert.equal(saved().gates.G2.state, "approved");
   };
   return { repo, feature, dt, ok, saved, git, description, plan };
 }
 
 test("new monorepo Jira issues require verified assignment, active sprint and In Progress before branching", () => {
   const prompt = fs.readFileSync(new URL("./prompts/dt-lane.md", import.meta.url), "utf8");
-  const setup = prompt.split("## Jira setup (the two CSS repos only)")[1].split("## Saving state")[0];
+  const setup = prompt.split("## Jira setup (T2 in the two CSS repos only)")[1].split("## Saving state")[0];
   const updates = setup.split("5. For newly created Jira tickets in **monorepo modality**")[1].split("6. Run the normal `next` command")[0];
   assert.ok(setup.indexOf("--jira-key <KEY>") < setup.indexOf("5. For newly created"));
   assert.match(updates, /authenticated-user\/profile tools/);
   assert.match(updates, /Do not use the lane claim owner as a Jira identity/);
   assert.match(updates, /service account.*ask for their Jira account/);
-  assert.match(updates, /Scrum board.*board's active sprint/);
+  assert.match(updates, /sprint in openSprints\(\)/);
+  assert.match(updates, /no board lookup is needed/);
+  assert.match(updates, /Exactly one active sprint: use its ID without asking/);
   assert.match(updates, /Use the sprint ID, not its name/);
-  assert.match(updates, /multiple boards or active sprints.*ask which one/);
-  assert.match(updates, /no active sprint.*ask how to proceed/);
+  assert.match(updates, /Several: ask one question naming them/);
+  assert.match(updates, /None: report it and ask how to proceed/);
+  assert.match(updates, /keep the claim, ask, and continue in this session once I answer/);
+  assert.match(prompt, /never bare IDs/);
   assert.match(updates, /never start a sprint/);
   assert.match(updates, /available transitions.*transition to In Progress/);
+  assert.match(updates, /separate calls.*issue edit \(`atlassian-editJiraIssue`\).*Then query the issue's available transitions and call `atlassian-transitionJiraIssue` with only the transition/);
+  assert.match(updates, /Never put assignee, sprint or other fields in the transition call/);
   assert.match(updates, /Do not hard-code a transition ID or write the status field directly/);
   assert.match(updates, /Re-read the issue and verify the assignee account ID, active sprint ID and In Progress status/);
   assert.match(updates, /progress --verification/);
@@ -80,18 +86,47 @@ test("Jira policy matches only the two named repos and normalizes branches", () 
   assert.throws(() => logic.jiraBranch("fake", "title"), /Jira key/);
 });
 
-for (const name of ["monorepo", "ottercam"]) test(`${name}: epic is saved during grill without approving scope, all tiers`, (t) => {
+for (const name of ["monorepo", "ottercam"]) test(`${name}: only T2 requires an epic during scope proposal and approval`, (t) => {
   const f = fixture(t, name);
+  const ctx = { key: `csscompany-enterprise/${name}`, featuresBase: path.dirname(f.feature) };
   for (const tier of ["T0", "T1", "T2"]) {
-    assert.match(f.dt("gate", tier, "0", "approve", "--tier", tier, "--type", "cli").stderr, /epic/);
-    f.ok("epic", tier, "--key", "ov-100");
-    const p = path.join(path.dirname(f.feature), tier);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(p, "feature.json"))).epic, "OV-100");
-    assert.equal(fs.existsSync(path.join(p, "progress.json")), false);
+    const p = path.join(ctx.featuresBase, tier);
+    const writePlan = () => { fs.mkdirSync(path.join(p, "tickets"), { recursive: true }); fs.writeFileSync(path.join(p, "tickets", "00.md"), "---\nid: \"00\"\ntitle: Task\n---\n"); if (tier === "T2") fs.writeFileSync(path.join(p, "spec.md"), "# Brief\n"); };
+    if (tier === "T2") {
+      assert.throws(() => logic.requireEpic(ctx, tier, tier), /epic/);
+      writePlan();
+      assert.match(f.dt("gate", tier, "0", "approve", "--tier", tier, "--type", "cli").stderr, /epic/);
+      assert.equal(fs.existsSync(path.join(p, "feature.json")), false);
+      f.ok("epic", tier, "--key", "ov-100");
+      assert.equal(JSON.parse(fs.readFileSync(path.join(p, "feature.json"))).epic, "OV-100");
+      assert.equal(fs.existsSync(path.join(p, "progress.json")), false);
+      assert.equal(logic.requireEpic(ctx, tier, tier), "OV-100");
+    } else {
+      assert.equal(logic.requireEpic(ctx, tier, tier), null);
+      assert.match(f.dt("gate", tier, "0", "approve", "--tier", tier, "--type", "cli").stderr, /no tickets/);
+      writePlan();
+    }
     f.ok("gate", tier, "0", "approve", "--tier", tier, "--type", "cli");
-    assert.equal(JSON.parse(fs.readFileSync(path.join(p, "feature.json"))).tier, tier);
+    const feature = JSON.parse(fs.readFileSync(path.join(p, "feature.json")));
+    assert.equal(feature.tier, tier);
+    if (tier !== "T2") assert.equal(feature.epic, undefined);
+    assert.equal(logic.requireEpic(ctx, tier), tier === "T2" ? "OV-100" : null);
     assert.equal(JSON.parse(fs.readFileSync(path.join(p, "progress.json"))).gates.G0.state, "approved");
   }
+  // Revising an existing quick task to T2 must check the proposed tier, not the saved tier.
+  assert.throws(() => logic.requireEpic(ctx, "T1", "T2"), /epic/);
+  assert.match(f.dt("gate", "T1", "0", "approve", "--tier", "T2", "--type", "cli").stderr, /epic/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(ctx.featuresBase, "T1", "feature.json"))).tier, "T1");
+});
+
+test("grill and lane instructions require epics only for T2 and keep T0/T1 work in one ticket", () => {
+  const start = fs.readFileSync(new URL("./prompts/dt-start.md", import.meta.url), "utf8");
+  const lane = fs.readFileSync(new URL("./prompts/dt-lane.md", import.meta.url), "utf8");
+  assert.match(start, /Wait for the user to choose the tier before asking for an epic/);
+  assert.match(start, /T0\/T1 assume all work fits inside one ticket/);
+  assert.match(start, /refuses a missing one only for T2/);
+  assert.match(start, /T0\/T1: exactly one ticket, `00`/);
+  assert.match(lane, /T0\/T1 features and other repos skip it/);
 });
 
 test("claim → Jira metadata → snake_case branch → resume and PR mapping", (t) => {
@@ -135,7 +170,7 @@ test("claim → Jira metadata → snake_case branch → resume and PR mapping", 
 test("ottercam: pending claim becomes a worktree and cleanup deletes the saved Jira branch", (t) => {
   const f = fixture(t, "ottercam"); f.plan();
   // Jira repos must not create GitHub issues during planning approvals.
-  f.ok("gate", "f", "1", "approve");
+  assert.match(f.dt("gate", "f", "1", "approve").stderr, /retired/);
   f.ok("gate", "f", "2", "approve");
   f.git("add", "docs"); f.git("commit", "-m", "plan"); f.git("push", "origin", "main");
   f.ok("next", "f", "--ticket", "00", "--owner", "a", "--claim-only");

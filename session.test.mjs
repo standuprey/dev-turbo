@@ -23,7 +23,7 @@ test("selection restores only from the active session branch and matching repo",
 });
 
 test("workflow commands fail before expansion if no project is selected", () => {
-	for (const command of ["spec", "slice", "lane", "review", "drift", "quick"]) {
+	for (const command of ["lane", "review", "revise"]) {
 		assert.throws(() => resolveCommand(`/dt-${command}`, null), /No dev-turbo project selected/);
 		assert.throws(() => resolveCommand(`/dt-${command} checkout`, null), /No dev-turbo project selected/);
 	}
@@ -32,10 +32,14 @@ test("workflow commands fail before expansion if no project is selected", () => 
 	}
 });
 
+test("retired commands name their replacement instead of reaching the model", () => {
+	for (const selected of [null, project]) assert.equal(resolveCommand("/dt-show 01", selected), null, "dt-show is gone, not redirected");
+	for (const [command, replacement] of [["spec", "/dt-revise"], ["slice", "/dt-revise"], ["amend x", "/dt-revise <change>"], ["drift", "/dt-revise"], ["quick", "/dt-lane"]]) {
+		for (const selected of [null, project]) assert.throws(() => resolveCommand(`/dt-${command}`, selected), new RegExp(`removed\\. Use ${replacement.replace(/[<>]/g, ".")}`));
+	}
+});
+
 test("selected project supplies slug, task type and default ticket", () => {
-	assert.equal(resolveCommand("/dt-spec", project), "/dt-spec checkout service");
-	assert.equal(resolveCommand("/dt-spec web", project), "/dt-spec checkout web");
-	assert.equal(resolveCommand("/dt-slice", project), "/dt-slice checkout");
 	assert.equal(resolveCommand("/dt-lane", project), "/dt-lane checkout");
 	assert.equal(resolveCommand("/dt-lane 00", project), "/dt-lane checkout 00");
 	assert.equal(resolveCommand("/dt-lane 01 force", project), "/dt-lane checkout 01 force");
@@ -43,61 +47,55 @@ test("selected project supplies slug, task type and default ticket", () => {
 	assert.throws(() => resolveCommand("/dt-lane force", project), /Usage/);
 	assert.equal(resolveCommand("/dt-review 07 autofix", project), "/dt-review checkout 07 autofix");
 	assert.equal(resolveCommand("/dt-review ov-123-my-branch", project), "/dt-review checkout ov-123-my-branch");
-	assert.equal(resolveCommand("/dt-drift", project), "/dt-drift checkout");
+	assert.equal(resolveCommand("/dt-revise", project), "/dt-revise checkout");
 	assert.equal(resolveCommand("/dt-status", project), null); // Handled directly by its extension.
 });
 
-test("amend requires a selected T2 project and preserves the full change description", () => {
+test("revise keeps the selected project and the full change description", () => {
 	const before = JSON.stringify(project);
-	assert.throws(() => resolveCommand("/dt-amend isolate v1", null), /No dev-turbo project selected/);
-	assert.equal(resolveCommand("/dt-amend isolate v1 without changing rollout", project), "/dt-amend checkout isolate v1 without changing rollout");
-	assert.equal(resolveCommand('/dt-amend "isolate v1, keep flag-off working"', project), '/dt-amend checkout "isolate v1, keep flag-off working"');
-	assert.equal(resolveCommand("/dt-amend checkout isolate v1", project), "/dt-amend checkout isolate v1");
-	assert.equal(sessionCommand("/dt-amend checkout isolate v1", project.slug), "/dt-amend isolate v1");
-	for (const args of ["", "--help", '""']) assert.throws(() => resolveCommand(`/dt-amend ${args}`, project), /description/);
-	assert.throws(() => resolveCommand("/dt-amend isolate v1", { ...project, tier: "T1" }), /needs a T2/);
-	assert.equal(JSON.stringify(project), before, "amend must not clear or change the selected project");
+	assert.throws(() => resolveCommand("/dt-revise isolate v1", null), /No dev-turbo project selected/);
+	assert.equal(resolveCommand("/dt-revise isolate v1 without changing rollout", project), "/dt-revise checkout isolate v1 without changing rollout");
+	assert.equal(resolveCommand('/dt-revise "isolate v1, keep flag-off working"', project), '/dt-revise checkout "isolate v1, keep flag-off working"');
+	assert.equal(resolveCommand("/dt-revise checkout isolate v1", project), "/dt-revise checkout isolate v1");
+	assert.equal(resolveCommand("/dt-revise fix copy", { ...project, tier: "T1" }), "/dt-revise checkout fix copy");
+	assert.equal(JSON.stringify(project), before, "revise must not clear or change the selected project");
 });
 
 test("final-check is removed; old handovers display internal closure", () => {
 	assert.equal(resolveCommand("/dt-final-check 00", project), null);
 	assert.equal(resolveCommand("/dt-final-check 00", null), null);
-	assert.equal(sessionCommand("/dt-final-check checkout 00", project.slug), "/dt-approve 00");
-	assert.equal(sessionCommand("/dt-final-check 7", project.slug), "/dt-approve 7");
+	assert.equal(sessionCommand("/dt-final-check checkout 00", project.slug), "/dt-check-merged");
+	assert.equal(sessionCommand("/dt-final-check 7", project.slug), "/dt-check-merged");
 });
 
 test("old acceptance handovers display internal closure", () => {
 	assert.equal(resolveCommand("/dt-accept 00", project), null, "the old command is no longer registered");
-	assert.equal(sessionCommand("/dt-accept checkout 00", project.slug), "/dt-approve 00");
-	assert.equal(sessionCommand("Next: /dt-accept 00", project.slug), "Next: /dt-approve 00");
+	assert.equal(sessionCommand("/dt-accept checkout 00", project.slug), "/dt-check-merged");
+	assert.equal(sessionCommand("Next: /dt-accept 00", project.slug), "Next: /dt-check-merged");
 	assert.equal(sessionCommand("/dt-acceptance checkout 00", project.slug), "/dt-acceptance checkout 00");
 });
 
 test("legacy saved commands only repeat the selected slug, never switch it", () => {
 	assert.equal(resolveCommand("/dt-lane checkout next", project), "/dt-lane checkout");
-	assert.equal(resolveCommand("/dt-spec checkout service", project), "/dt-spec checkout service");
 	assert.equal(resolveCommand("/dt-review checkout 07 autofix", project), "/dt-review checkout 07 autofix");
 	assert.throws(() => resolveCommand("/dt-lane catalog next", project), /Usage/);
-	assert.throws(() => resolveCommand("/dt-drift catalog", project), /Switch projects/);
-	assert.throws(() => resolveCommand("/dt-spec catalog service", project), /Switch projects/);
 	assert.throws(() => resolveCommand("/dt-lane 00 extra", project), /Usage/);
 	assert.throws(() => resolveCommand("/dt-review 00 extra", project), /Usage/);
 });
 
-test("T0/T1 retain quick-task defaults and cannot run ticket workflows", () => {
+test("T0/T1 projects use the same lane, review and revise commands", () => {
 	const quick = { ...project, tier: "T1", type: "web" };
-	assert.equal(resolveCommand("/dt-quick", quick), "/dt-quick web as aligned");
-	assert.equal(resolveCommand("/dt-quick fix the title", quick), "/dt-quick web fix the title");
-	assert.equal(resolveCommand("/dt-quick web as aligned", quick), "/dt-quick web as aligned");
-	assert.equal(resolveCommand("/dt-review", quick), "/dt-review quick");
-	assert.equal(resolveCommand("/dt-review quick my-branch", quick), "/dt-review quick my-branch");
-	assert.throws(() => resolveCommand("/dt-lane", quick), /needs a T2/);
-	assert.throws(() => resolveCommand("/dt-quick", project), /for T0\/T1/);
+	assert.equal(resolveCommand("/dt-lane", quick), "/dt-lane checkout");
+	assert.equal(resolveCommand("/dt-review", quick), "/dt-review checkout");
+	assert.equal(resolveCommand("/dt-revise", quick), "/dt-revise checkout");
 });
 
 test("resume displays slugless next steps without changing explicit CLI commands", () => {
 	assert.equal(sessionCommand("/dt-lane checkout next", project.slug), "/dt-lane");
-	assert.equal(sessionCommand("Next: /dt-review checkout 00\nThen: /dt-drift checkout", project.slug), "Next: /dt-review 00\nThen: /dt-drift");
+	assert.equal(sessionCommand("Next: /dt-review checkout 00\nThen: /dt-drift checkout", project.slug), "Next: /dt-review 00\nThen: /dt-revise");
+	for (const old of ["/dt-spec checkout service", "/dt-slice checkout", "/dt-amend checkout", "/dt-drift checkout apply"]) assert.equal(sessionCommand(old, project.slug), "/dt-revise");
+	assert.equal(sessionCommand("/dt-approve slices", project.slug), "/dt-approve plan");
+	for (const old of ["/dt-approve 00", "/dt-approve checkout 3", "/dt-approve ticket", "/dt-approve ticket 01"]) assert.equal(sessionCommand(old, project.slug), "/dt-check-merged");
 	assert.equal(sessionCommand("/dt-resume checkout", project.slug), "/dt-resume checkout");
 	assert.equal(sessionCommand("dt.mjs gate checkout 3 approve --ticket 00", project.slug), "dt.mjs gate checkout 3 approve --ticket 00");
 });

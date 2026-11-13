@@ -1,7 +1,8 @@
+import fs from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequire } from "node:module";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranchReader, WORKFLOW } from "./extensions/dt-session/branch.mjs";
@@ -42,7 +43,7 @@ test("metadata reads reuse unchanged ancestry and inspect only appended entries"
   assert.equal(reader.read(h.manager), first);
   assert.equal(h.calls.entry, 100);
   assert.equal(h.calls.branch, 1);
-  h.custom("dt-quick-gate", { gate: "review" });
+  h.custom("dt-scope-proposal", { slug: "next" });
   assert.equal(reader.read(h.manager).length, 2);
   h.move(root);
   assert.deepEqual(reader.read(h.manager).map(e => e.customType), ["dt-project"]);
@@ -112,18 +113,18 @@ test("Pi runtime: idle sessions stay dormant and active input reuses state witho
   process.env.DT_DIR = dir;
   t.after(async () => { if (previous === undefined) delete process.env.DT_DIR; else process.env.DT_DIR = previous; await rm(dir, { recursive: true, force: true }); });
   // Omit command-only modules: loading the extension must not need them.
-  for (const file of ["index.ts", "runtime.ts", "state.mjs", "gates.mjs", "footer.mjs", "branch.mjs"]) {
+  for (const file of ["index.ts", "runtime.ts", "state.mjs", "gates.mjs", "approval-guard.mjs", "footer.mjs", "branch.mjs", "ticket-screenshots.mjs"]) {
     await writeFile(join(dir, file), await readFile(new URL(`./extensions/dt-session/${file}`, import.meta.url)));
   }
   const { createJiti } = createRequire(join(pkg, "package.json"))("jiti");
   const jiti = createJiti(join(pkg, "package.json"), { moduleCache: false, alias: {
     "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js"),
     "@earendil-works/pi-tui": join(pkg, "../pi-tui/dist/index.js"),
-    "@earendil-works/pi-ai": join(pkg, "../pi-ai/dist/compat.js"),
+    "@earendil-works/pi-ai": (fs.existsSync(join(pkg, "dist/core/extensions/pi-ai-extension-view.js")) ? join(pkg, "dist/core/extensions/pi-ai-extension-view.js") : join(pkg, "../pi-ai/dist/compat.js")),
   } });
   const factory = await jiti.import(join(dir, "index.ts"), { default: true });
   const h = history(), handlers = new Map(), events = new Map(), tools = new Map();
-  const repo = { key: "org/repo", featuresBase: "/features" };
+  const repo = { key: "org/repo", featuresBase: join(dir, "features") };
   const project = { slug: "demo", tier: "T2", type: "service", key: repo.key, base: repo.featuresBase };
   let processes = 0, footerChanges = 0, renders = 0, statuses = 0;
   const ctx = { cwd: "/repo", mode: "tui", hasUI: true, sessionManager: h.manager, ui: {
@@ -210,12 +211,14 @@ test("Pi runtime: idle sessions stay dormant and active input reuses state witho
   assert.equal(footerChanges, 2);
   // A successfully saved proposal also activates context without selecting a project.
   const params = { slug: "proposed", tier: "T1", type: "cli", note: "Improve input latency" };
-  await tools.get("dt_propose_scope").execute("id", params, undefined, undefined, ctx);
-  assert.match(before(), /Pending scope proposal/);
+  await mkdir(join(repo.featuresBase, "proposed", "tickets"), { recursive: true });
+  await writeFile(join(repo.featuresBase, "proposed", "tickets", "00-task.md"), '---\nid: "00"\ntitle: Task\n---\n');
+  await tools.get("dt_propose_plan").execute("id", params, undefined, undefined, ctx);
+  assert.match(before(), /Pending plan proposal/);
   assert.equal(processes, 2);
   assert.equal(footerChanges, 2);
   await handlers.get("session_start")({}, ctx);
-  assert.match(before(), /Pending scope proposal/);
+  assert.match(before(), /Pending plan proposal/);
   assert.equal(processes, 3);
   h.move(null); h.session("fork");
   h.custom("dt-project", project);

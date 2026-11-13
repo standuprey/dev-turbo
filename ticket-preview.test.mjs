@@ -31,7 +31,7 @@ test("lane shows only a summary before confirmation; decline, cancel and non-UI 
       const summary = events.at(-1).content;
       assert.match(summary, /01 · Scoped styles/);
       assert.match(summary, /Keep portal styles inside their module/);
-      assert.match(summary, /\/dt-show 01/);
+      assert.match(summary, /\/dt-status 01/);
       assert.ok(!summary.includes(content));
       assert.doesNotMatch(summary, /Scenario:|frontmatter|title:/);
       assert.match(title, /01.*demo/);
@@ -55,7 +55,7 @@ test("lane shows only a summary before confirmation; decline, cancel and non-UI 
   assert.match(events.at(-1), /No claim or work has started/);
 });
 
-test("dt-show still displays the complete ticket", async (t) => {
+test("dt-status <id> displays the complete ticket", async (t) => {
   const { snapshot, content } = await fixture(t);
   const messages = [];
   displayTicket({ sendMessage(message) { messages.push(message); } }, { slug: "demo" }, await readTicketPreview(snapshot, "01"));

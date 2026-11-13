@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { needsSliceReview, ticketMerged } from "./gates.mjs";
+import { ticketMerged } from "./gates.mjs";
 
 const clean = (value) => String(value || "").replace(/[\x00-\x1f\x7f]/g, " ").trim();
 const real = (value) => { try { return realpathSync(value); } catch { return resolve(value); } };
@@ -8,10 +8,8 @@ const real = (value) => { try { return realpathSync(value); } catch { return res
 // Read-only snapshot. dt.mjs next revalidates and claims atomically after selection.
 export function laneOptions(snapshot, repo, owner, logic) {
   const { tickets, prog, st } = snapshot;
-  const gateReason = prog.gates.G1?.state !== "approved" ? "Architecture approval required"
-    : prog.gates.G2?.state !== "approved" || needsSliceReview(snapshot) ? "Slices approval required"
-    : ["pending", "changes"].includes(prog.gates.G4?.state) || prog.drift.merges_since >= 2
-      || prog.todo.some((n) => /^drift\s+\d+:/i.test(n)) ? "Architecture drift review/application required" : "";
+  // A revised plan awaiting approval blocks new starts, not work already in flight.
+  const gateReason = prog.gates.G2?.state !== "approved" ? "plan approval required (/dt-approve plan)" : "";
   const legacy = repo.branch?.match(/^ticket\/(.+)-(\d+)$/);
   const current = Object.entries(prog.tickets).find(([, t]) => t.branch && t.branch === repo.branch)?.[0] || legacy?.[2]?.padStart(2, "0");
   return tickets.filter((t) => st[t.id].status !== "done").map((t) => {
@@ -23,17 +21,17 @@ export function laneOptions(snapshot, repo, owner, logic) {
     } else if (checkout && real(checkout) !== real(repo.root)) {
       state = "locked"; reason = `${checkout} · another checkout`;
     } else if (ticketMerged(saved)) {
-      state = "merged"; reason = `use /dt-approve ${t.id}`;
+      state = "merged"; reason = "use /dt-check-merged";
     } else if (st[t.id].status === "review") {
       state = "review"; reason = `use /dt-review ${t.id}`;
     } else if (saved.blockers?.length || prog.blockers.length) {
       reason = (saved.blockers?.length ? saved.blockers : prog.blockers).join(" · ");
-    } else if (gateReason) reason = gateReason;
-    else if (current && current !== t.id && st[current]?.status !== "done" && repo.modality !== "monorepo") {
+    } else if (current && current !== t.id && st[current]?.status !== "done" && repo.modality !== "monorepo") {
       reason = `this checkout is on ticket ${current}; use another lane`;
     } else if (st[t.id].status === "in_progress") {
       state = "resume"; selectable = true;
-    } else {
+    } else if (gateReason) reason = gateReason;
+    else {
       try { logic.pickReady(tickets, st, t.id); state = "ready"; selectable = true; }
       catch (e) { reason = clean(e.message).replace(/^no ready ticket:\s*/, "").replace(new RegExp(`^${t.id}:\\s*`), ""); }
     }

@@ -1,8 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const COMMANDS = new Set(["dt-resume", "dt-spec", "dt-slice", "dt-lane", "dt-show", "dt-review", "dt-drift"]);
-const TYPES = ["web", "device", "service", "cli", "mixed"];
+const COMMANDS = new Set(["dt-resume", "dt-lane", "dt-status", "dt-review"]);
 const VALID_SLUG = /^[\w][\w.-]*$/;
 const safeSlug = (slug) => VALID_SLUG.test(slug) && !slug.includes("..");
 
@@ -61,16 +60,14 @@ export async function completeArguments(command, args, load, project = null) {
 		return match((data?.features || []).map((f) => ({ value: f.slug, label: f.slug, description: f.label })), args);
 	}
 	if (!project) return null;
-	if (command === "dt-spec") return match(TYPES.map((value) => ({ value, label: value })), args);
-	if (!["dt-lane", "dt-show", "dt-review"].includes(command)) return null;
 	const second = args.match(/^(\S+)([ \t]+)(\S*)$/);
-	if (command === "dt-lane" && project.tier === "T2" && second && /^\d{1,2}$/.test(second[1])) {
+	if (command === "dt-lane" && second && /^\d{1,2}$/.test(second[1])) {
 		return match([{ value: "force", label: "force", description: "Take over in the saved checkout; check the previous agent is gone" }], second[3], second[1] + second[2]);
 	}
 	if (command === "dt-review" && second) {
 		return match([{ value: "autofix", label: "autofix" }], second[3], second[1] + second[2]);
 	}
-	if (/\s/.test(args) || project.tier !== "T2") return null;
+	if (/\s/.test(args)) return null;
 	const data = await load();
 	if (!data || data.base !== project.base || !data.features.some((f) => f.slug === project.slug)) return null;
 	const items = await tickets(data.base, project.slug);

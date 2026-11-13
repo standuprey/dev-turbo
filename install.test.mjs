@@ -16,6 +16,8 @@ test("install replaces the old start command while preserving user data", async 
 	execFileSync("bash", [join(import.meta.dirname, "install.sh")], { env: { ...process.env, PI_AGENT_DIR: dir } });
 	assert.equal(await readFile(join(dir, "prompts", "dt-start.md"), "utf8"), await readFile(new URL("./prompts/dt-start.md", import.meta.url), "utf8"));
 	await assert.rejects(access(join(dir, "prompts", "dt-grill.md")), { code: "ENOENT" });
+	assert.equal(await readFile(join(dir, "extensions", "dt-session", "approval-guard.mjs"), "utf8"), await readFile(new URL("./extensions/dt-session/approval-guard.mjs", import.meta.url), "utf8"));
+	assert.equal(await readFile(join(dir, "extensions", "dt-session", "ticket-screenshots.mjs"), "utf8"), await readFile(new URL("./extensions/dt-session/ticket-screenshots.mjs", import.meta.url), "utf8"));
 	assert.equal(await readFile(join(dir, "dt", "config.json"), "utf8"), "{}");
 	assert.equal(await readFile(join(dir, "dt", "features", "saved.md"), "utf8"), "Saved feature");
 });

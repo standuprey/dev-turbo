@@ -4,13 +4,13 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as logic from "./dt.mjs";
-import { nextCommands, QUICK } from "./extensions/dt-session/gates.mjs";
+import { nextCommands } from "./extensions/dt-session/gates.mjs";
 import { renderStatus } from "./extensions/dt-status/status.mjs";
 
 const project = { slug: "demo", tier: "T2", type: "service" };
 function view(states, extra = {}) {
   const tickets = Object.keys(states).map((id) => ({ id, title: id, touches: [id], blocked_by: [], unsafe_with: [] }));
-  const prog = logic.normalizeProgress({ gates: { G1: { state: "approved" }, G2: { state: "approved" } }, tickets: states, ...extra });
+  const prog = logic.normalizeProgress({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: states, ...extra });
   return { project, branch: [], snapshot: { feature: project, phase: "build", tickets, prog, st: logic.deriveStatuses(tickets, prog) } };
 }
 
@@ -21,19 +21,16 @@ test("full lanes route to the picker without choosing another session's ticket",
   assert.match(renderStatus(project, v.snapshot, logic), /## Next commands\n- `\/dt-lane`$/);
 });
 
-test("completion has no next command, but outstanding final drift still routes to review", () => {
-  const v = view({ "00": { status: "done" } });
-  assert.deepEqual(nextCommands(v, logic), []);
-  assert.match(renderStatus(project, v.snapshot, logic), /## Next commands\nNo next command\.$/);
-  v.snapshot.prog.drift.merges_since = 1;
-  assert.deepEqual(nextCommands(v, logic), ["/dt-drift"]);
-  assert.equal(logic.suggestNext({ slug: project.slug, ...v.snapshot }), "/dt-drift demo");
-  for (const tier of ["T0", "T1"]) {
-    const quick = { ...project, tier, key: "org/repo", scopeId: "scope" };
-    const branch = [{ type: "custom", customType: QUICK, data: { ...quick, gate: "ticket", state: "approved" } }];
-    assert.deepEqual(nextCommands({ project: quick, branch }, logic), []);
-    assert.match(renderStatus(quick, null, logic, { branch }), /## Next commands\nNo next command\.$/);
+test("completion has no next command and suggests no review", () => {
+  for (const tier of ["T0", "T1", "T2"]) {
+    const v = view({ "00": { status: "done" } });
+    const p = { ...project, tier };
+    assert.deepEqual(nextCommands({ ...v, project: p }, logic), []);
+    assert.match(renderStatus(p, v.snapshot, logic), /## Next commands\nNo next command\.$/);
+    assert.doesNotMatch(renderStatus(p, v.snapshot, logic), /drift/i);
   }
+  const v = view({ "00": { status: "done" } });
+  assert.equal(logic.suggestNext({ slug: project.slug, ...v.snapshot }), "feature complete");
 });
 
 test("stale saved status commands are ignored without rewriting progress", async (t) => {
@@ -58,8 +55,8 @@ test("stale saved status commands are ignored without rewriting progress", async
 });
 
 test("workflow prompts never send completed work back to status", async () => {
-  for (const name of ["lane", "review", "drift"]) {
+  for (const name of ["lane", "review", "revise"]) {
     const prompt = await readFile(new URL(`./prompts/dt-${name}.md`, import.meta.url), "utf8");
-    assert.doesNotMatch(prompt, /\/dt-status\b/);
+    assert.doesNotMatch(prompt, /\/dt-status\b(?! <id>)/);
   }
 });

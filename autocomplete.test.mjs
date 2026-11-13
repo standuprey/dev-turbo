@@ -14,14 +14,15 @@ test("only resume completes project slugs; unselected workflow commands have no 
 	assert.deepEqual(values(await completeArguments("dt-resume", "ch", load)), ["checkout"]);
 	assert.deepEqual(values(await completeArguments("dt-resume", "", load)), ["checkout", "catalog"]);
 	assert.equal(await completeArguments("dt-resume", "checkout extra", load), null);
-	for (const command of ["dt-status", "dt-spec", "dt-slice", "dt-lane", "dt-show", "dt-review", "dt-drift", "dt-start", "dt-quick"]) {
+	for (const command of ["dt-status", "dt-revise", "dt-lane", "dt-review", "dt-start", "dt-spec", "dt-quick"]) {
 		assert.equal(await completeArguments(command, "", () => { throw new Error("must not load"); }), null);
 	}
 });
 
-test("task types complete for the selected project without loading repo data", async () => {
-	assert.deepEqual(values(await completeArguments("dt-spec", "s", () => { throw new Error("must not load"); }, project)), ["service"]);
-	assert.deepEqual(values(await completeArguments("dt-spec", "", load, project)), ["web", "device", "service", "cli", "mixed"]);
+test("revise takes free text and retired commands have no suggestions", async () => {
+	for (const command of ["dt-revise", "dt-spec", "dt-slice", "dt-show"]) {
+		assert.equal(await completeArguments(command, "s", () => { throw new Error("must not load"); }, project), null);
+	}
 });
 
 test("selected project's current ticket files supply IDs, titles and next", async (t) => {
@@ -37,9 +38,9 @@ test("selected project's current ticket files supply IDs, titles and next", asyn
 	const items = await completeArguments("dt-lane", "", get, selected);
 	assert.deepEqual(values(items), ["00", "07"]);
 	assert.equal(items[1].description, "Ship checkout");
-	assert.deepEqual(values(await completeArguments("dt-show", "0", get, selected)), ["00", "07"]);
-	assert.equal(await completeArguments("dt-show", "07 force", get, selected), null);
-	assert.equal(await completeArguments("dt-show", "", get, { ...selected, tier: "T1" }), null);
+	assert.deepEqual(values(await completeArguments("dt-status", "0", get, selected)), ["00", "07"]);
+	assert.equal(await completeArguments("dt-status", "07 force", get, selected), null);
+	assert.deepEqual(values(await completeArguments("dt-lane", "", get, { ...selected, tier: "T1" })), ["00", "07"]);
 	assert.deepEqual(values(await completeArguments("dt-review", "0", get, selected)), ["00", "07"]);
 	assert.equal(await completeArguments("dt-final-check", "0", get, selected), null);
 	assert.equal(await completeArguments("dt-final-check", "07 a", get, selected), null);
@@ -72,10 +73,9 @@ test("provider preserves other completions and sees project switches immediately
 	const result = await provider.getSuggestions([line], 0, 13, options);
 	assert.equal(result.prefix, "ch");
 	assert.deepEqual(provider.applyCompletion([line], 0, 13, result.items[0], result.prefix).lines, ["/dt-resume checkout suffix"]);
-	assert.equal(await provider.getSuggestions(["/dt-spec s"], 0, 10, options), null);
+	assert.equal(await provider.getSuggestions(["/dt-lane 0"], 0, 10, options), null);
 	selected = project;
-	assert.deepEqual(values((await provider.getSuggestions(["/dt-spec s"], 0, 10, options)).items), ["service"]);
-	for (const line of ["/dt-start ch", "/dt-quick a task", "/dt-st", "text /dt-resume ch", "@file"]) {
+	for (const line of ["/dt-start ch", "/dt-revise a change", "/dt-st", "text /dt-resume ch", "@file"]) {
 		assert.equal((await provider.getSuggestions([line], 0, line.length, options)).prefix, "fallback");
 	}
 	assert.equal(delegated, 5);

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 // Optional runtime integration tests: PI_PACKAGE_DIR=<installed pi package> node --test extension.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -5,6 +6,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createProjectFooter } from "./extensions/dt-session/footer.mjs";
 
 const piPackage = process.env.PI_PACKAGE_DIR;
@@ -19,7 +21,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	const jiti = createJiti(join(piPackage, "package.json"), { alias: {
 		"@earendil-works/pi-coding-agent": join(piPackage, "dist/index.js"),
 		"@earendil-works/pi-tui": join(piPackage, "../pi-tui/dist/index.js"),
-		"@earendil-works/pi-ai": join(piPackage, "../pi-ai/dist/compat.js"),
+		"@earendil-works/pi-ai": (fs.existsSync(join(piPackage, "dist/core/extensions/pi-ai-extension-view.js")) ? join(piPackage, "dist/core/extensions/pi-ai-extension-view.js") : join(piPackage, "../pi-ai/dist/compat.js")),
 	} });
 	const session = await jiti.import(join(import.meta.dirname, "extensions/dt-session/index.ts"), { default: true });
 	const resume = await jiti.import(join(import.meta.dirname, "extensions/dt-resume.ts"), { default: true });
@@ -29,6 +31,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	await writeFile(join(repo.featuresBase, "checkout", "feature.json"), JSON.stringify({ slug: "checkout", tier: "T2", type: "service" }));
 	await writeFile(join(repo.featuresBase, "checkout", "progress.json"), JSON.stringify({ tickets: {} }));
 	await writeFile(join(repo.featuresBase, "checkout", "tickets", "00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\nTicket content\n');
+	await writeFile(join(repo.featuresBase, "checkout", "spec.md"), "# Brief\n");
 	await mkdir(join(repo.featuresBase, "catalog"), { recursive: true });
 	await writeFile(join(repo.featuresBase, "catalog", "feature.json"), JSON.stringify({ slug: "catalog", tier: "T2", type: "web" }));
 	let entries = [];
@@ -80,7 +83,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	};
 	assert.equal((await input("/dt-lane")).action, "handled");
 	assert.equal(calls.filter((c) => c.args[1] === "gate").length, 0);
-	const tool = tools.get("dt_propose_scope");
+	const tool = tools.get("dt_propose_plan");
 	const params = { slug: "checkout", tier: "T2", type: "service", note: "Checkout feature" };
 	const signal = new AbortController().signal;
 	await tool.execute("id", params, signal, undefined, ctx);
@@ -93,7 +96,7 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 	assert.match(context(), /Lane claim owner for this session: one/);
 	await handlers.get("session_shutdown")({}, ctx);
 	assert.ok(calls.some((c) => c.args.join(" ").includes("progress checkout --release-claim --owner one")));
-	assert.equal((await input("/dt-spec")).text, "/dt-spec checkout service");
+	assert.equal((await input("/dt-revise")).text, "/dt-revise checkout");
 	// Reopening/reloading/forking restores the active branch's selection.
 	await handlers.get("session_start")({ reason: "reload" }, ctx);
 	assert.equal(selected().slug, "checkout");
@@ -173,7 +176,7 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	const feature = { slug: "demo", tier: "T2", type: "service" };
 	await mkdir(join(base, "demo", "tickets"), { recursive: true });
 	await writeFile(join(base, "demo", "feature.json"), JSON.stringify(feature));
-	const progress = JSON.stringify({ gates: { G1: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "done", verification: "tests passed" } }, next: "Run acceptance checks" });
+	const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "done", verification: "tests passed" } }, next: "Run acceptance checks" });
 	await writeFile(join(base, "demo", "progress.json"), progress);
 	await writeFile(join(base, "demo", "tickets/00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\n');
 	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
@@ -182,8 +185,8 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	const jiti = createJiti(join(piPackage, "package.json"), { alias: { "@earendil-works/pi-coding-agent": join(piPackage, "dist/index.js"), "@earendil-works/pi-tui": join(piPackage, "../pi-tui/dist/index.js") } });
 	const status = await jiti.import(join(import.meta.dirname, "extensions/dt-status/index.ts"), { default: true });
 	let command;
-	const notices = [], messages = [];
-	await status({ registerMessageRenderer() {}, registerCommand(name, definition) { assert.equal(name, "dt-status"); command = definition; }, sendMessage(message) { messages.push(message); }, sendUserMessage() { throw new Error("must not call model"); }, exec() { throw new Error("must not call CLI actions"); }, events: { emit() { throw new Error("must not depend on event handoff"); } } });
+	const notices = [], messages = [], renderers = new Map();
+	await status({ registerMessageRenderer(name, renderer) { renderers.set(name, renderer); }, registerCommand(name, definition) { assert.equal(name, "dt-status"); command = definition; }, sendMessage(message) { messages.push(message); }, sendUserMessage() { throw new Error("must not call model"); }, exec() { throw new Error("must not call CLI actions"); }, events: { emit() { throw new Error("must not depend on event handoff"); } } });
 	let branch = [];
 	const ctx = { cwd: "/repo", sessionManager: { getBranch: () => branch }, ui: { notify(...args) { notices.push(args); } } };
 	await command.handler("", ctx);
@@ -199,5 +202,44 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	assert.ok(messages[0].content.includes("1/1 accepted"));
 	assert.ok(messages[0].content.includes("Run acceptance checks"));
 	assert.ok(messages[0].content.includes("tests passed"));
+	assert.equal(await readFile(join(base, "demo", "progress.json"), "utf8"), progress);
+	// The same command renders images after the full ticket/progress, even without dt-session loaded.
+	const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGQAAAABJRU5ErkJggg==", "base64");
+	await mkdir(join(base, "demo", "references/ui"), { recursive: true });
+	const screenshot = join(base, "demo", "references/ui/workspace.png");
+	await writeFile(screenshot, image);
+	const ticket = '---\nid: "01"\ntitle: Workspace\n---\n## Outcome\nShow a workspace.\n## UI reference\n![Workspace](../references/ui/workspace.png)\n![Missing](../references/ui/missing.png)\n## Done when\nExisting checks.\n';
+	await writeFile(join(base, "demo", "tickets/01-workspace.md"), ticket);
+	await command.handler("1", ctx);
+	const message = messages.at(-1);
+	assert.equal(message.customType, "dt-ticket");
+	assert.ok(message.content.startsWith(`Status: TODO\n\n${ticket}`));
+	assert.ok(message.content.includes("## Saved ticket progress"));
+	assert.equal(message.details.screenshots.length, 2);
+	assert.equal(message.details.screenshots[0].data, image.toString("base64"));
+	assert.match(message.details.screenshots[1].error, /missing or unreadable/);
+	assert.ok(!message.content.includes(image.toString("base64")));
+	assert.match(message.details.screenshotExport.url, /^file:\/\/\/tmp\/dt-ticket-01-images-[^/]+\/$/);
+	const imageFolder = fileURLToPath(message.details.screenshotExport.url);
+	t.after(() => rm(imageFolder, { recursive: true, force: true }));
+	assert.deepEqual(await readFile(join(imageFolder, "01-workspace.png")), image);
+	// Persisted display details keep the image available after its source file disappears.
+	await rm(screenshot);
+	const tui = await import(join(piPackage, "../pi-tui/dist/index.js"));
+	const { initTheme } = await import(join(piPackage, "dist/index.js"));
+	initTheme("dark", false);
+	const capabilities = tui.getCapabilities();
+	t.after(() => tui.setCapabilities(capabilities));
+	tui.setCapabilities({ ...capabilities, images: null, hyperlinks: true });
+	const renderer = renderers.get("dt-ticket");
+	const component = renderer(JSON.parse(JSON.stringify(message)), { outputPad: 1, expanded: false }, { bg: (_, v) => v, fg: (_, v) => v });
+	assert.equal(component.children.length, 2);
+	assert.equal(component.children.filter(c => c.constructor.name === "Image").length, 0);
+	assert.equal(component.children.at(-1).constructor.name, "Text");
+	assert.ok(component.children.at(-1).render(160).some(line => line.includes(`Reference screenshots: ${message.details.screenshotExport.url}`)));
+	assert.ok(notices.some(([text, type]) => type === "warning" && text.includes("Missing:")));
+	for (const width of [20, 80, 160]) {
+		assert.ok(component.render(width).every(line => tui.visibleWidth(line) <= width));
+	}
 	assert.equal(await readFile(join(base, "demo", "progress.json"), "utf8"), progress);
 });

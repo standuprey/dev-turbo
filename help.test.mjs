@@ -9,7 +9,7 @@ const readme = await readFile(new URL("./README.md", import.meta.url), "utf8");
 
 test("README's help section makes the picker the default and explains every label", () => {
   const flow = readme.split("## Flow\n")[1].split(/^## /m)[0];
-  assert.match(flow, /\| `\/dt-lane` \| Open the ticket picker/);
+  assert.match(flow, /\| `\/dt-lane \[id \[force\]\]` \| Open the ticket picker/);
   assert.match(flow, /### Ticket picker and lane ownership/);
   for (const label of ["READY", "RESUME", "LOCKED", "BLOCKED", "REVIEW", "MERGED"]) {
     assert.ok(flow.includes(`| **${label}** |`), `missing ${label}`);
