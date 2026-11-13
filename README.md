@@ -15,14 +15,14 @@ Prompt templates, one zero-dependency script and extensions for help, read-only 
 
 **Move forward with a dt-command.** Discussion is for questions and adjustments; a chat "yes" never records approval.
 
-Start with `/dt-start <task>`. After the grill, it asks you to choose a tier and writes the plan: T0/T1 get one ticket; T2 gets a brief (`spec.md`) and a handful of tickets. The spec says what and why: behavior, goals, constraints and acceptance criteria. The shared module map lives in `spec.md`: exact `touches` keys, code/artifact paths, responsibilities and module dependencies. Tickets say how: slices, ticket/lane ownership, ticket dependencies, implementation approach and landing order. Ticket 00 builds the mapped modules' interfaces as compiling code; it does not own a duplicate module map. It saves a plan proposal only after your explicit choice. `/dt-approve plan` confirms the project name, records approval and selects the project. Following commands omit the slug. In a new session, `/dt-resume [slug]` selects an existing project; the footer shows its name.
+Start with `/dt-start <task>`. After the grill, it asks you to choose a tier and writes the plan: T0/T1 get one ticket; T2 gets a brief (`spec.md`) and a handful of tickets. The spec says what and why: behavior, goals, constraints and acceptance criteria. The shared module map lives in `spec.md`: exact `touches` keys, code/artifact paths, responsibilities and module dependencies. Tickets say how: slices, ticket/lane ownership, ticket dependencies, implementation approach and landing order. Ticket 00 builds the mapped modules' interfaces as compiling code; it does not own a duplicate module map. It saves a plan proposal only after your explicit choice. `/dt-approve plan` confirms the project name, records approval and selects the project. For T0/T1, that confirmation also starts ticket 00 in the current checkout; safety checks still run, and warnings require a separate decision. T2 continues with `/dt-lane`. Following commands omit the slug. In a new session, `/dt-resume [slug]` selects an existing project; the footer shows its name.
 
 ### Commands
 
 | Command | What it does |
 |---|---|
 | `/dt-start <task>` | Grill, choose the tier, then write the brief and tickets. Clears the current selection. |
-| `/dt-approve plan` | Approve a new plan (creates and selects the project); also honors legacy pending plan gates. |
+| `/dt-approve plan` | Approve a new plan (creates and selects the project), and start ticket 00 for T0/T1 with the same confirmation. Also honors legacy pending plan gates without starting work. |
 | `/dt-lane [id [force\|override]]` | Open the ticket picker, or start/resume one ticket: scenarios red, TDD green, verify, PR. T0/T1 build ticket 00 in the current checkout on `quick/<slug>`. `force` takes over a claim in its saved checkout; `override` accepts all start-policy warnings. |
 | `/dt-review [id \| branch] [autofix]` | Review in chat before merge; offer to fix selected findings. Re-review is optional. |
 | `/dt-check-merged` | After you merge, check every open ticket's PRs on GitHub, report their states and close each ticket whose PRs are all merged. |
@@ -75,6 +75,8 @@ Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when
 
 **Canceling changes nothing.** After selection, the extension displays a short summary with the ticket ID, title and outcome, then asks whether it is the ticket you want to work on. This also applies to explicit IDs, resumes and force takeovers. Declining or canceling leaves claims and Git unchanged. Use `/dt-status <id>` to read the full ticket and its saved progress. After confirmation, the agent rechecks safety and claims the ticket atomically before Git operations. All current policy warnings are rechecked when claiming. Override consent is explicit, recorded with the claim and never inferred merely from opening the picker.
 
+For a new T0/T1 project, the `/dt-approve plan` confirmation also confirms starting ticket 00, so a clean start skips the picker and second confirmation. Warnings still show the Start anyway dialog; declining or a failed check leaves the plan approved without claiming or changing Git. Use `/dt-lane 00` to retry or resume, with normal ticket confirmation. T2 and legacy revision approvals do not start work.
+
 - `/dt-lane <id>` skips the picker, not ticket confirmation or safety checks. Normal starts require an interactive or RPC confirmation dialog. Non-interactive starts require an explicit `/dt-lane <id> override`; otherwise use `/dt-status <id>` to inspect.
 - `/dt-lane <id> force` explicitly takes over a claim **in its saved checkout**, after you check the previous agent is gone. It does not stop that agent or cancel running commands. Without override, dirty-tree, dependency and module-conflict checks still apply.
 
@@ -98,7 +100,7 @@ Save short verification results, useful links and remaining checks in `progress.
 
 ### Approval and closure
 
-`/dt-approve plan` approves a new plan (creating and selecting the project). It asks for confirmation, and fails if the plan files changed while its dialog was open. `/dt-revise` keeps that approval intact rather than requesting another one. Legacy pending plan gates still use their saved approval path; no existing pending gate is silently cleared.
+`/dt-approve plan` approves a new plan (creating and selecting the project), and starts ticket 00 for T0/T1 after safety checks. It asks for one approve-and-start confirmation for T0/T1, and fails if the plan files changed while its dialog was open. `/dt-revise` keeps that approval intact rather than requesting another one. Legacy pending plan gates still use their saved approval path; no existing pending gate is silently cleared.
 
 Merging a ticket's PRs is your decision; `/dt-check-merged` only records it. It checks every saved PR of each open ticket live on GitHub, reports the states in one table, and closes each ticket whose PRs are all merged. Tickets with an open, closed-unmerged or unreadable PR stay open. It needs no confirmation, and closure is not proof that staging or production checks passed.
 
@@ -114,7 +116,7 @@ Selection survives reloads, reopening and forks of the Pi session. A brand-new s
 
 ## Examples
 
-- Button typo (T0): `/dt-start` → `/dt-approve plan` → `/dt-lane` → merge → `/dt-check-merged`.
+- Button typo (T0): `/dt-start` → `/dt-approve plan` (approves and starts ticket 00) → merge → `/dt-check-merged`.
 - Pagination fix (T1): same as T0; the single ticket lists 2-5 scenario titles, and `/dt-review` before merge.
 - Export service (T2): `/dt-start` writes a one-page brief and five tickets → `/dt-approve plan` → skeleton 00 → parallel lanes → `/dt-revise` when reality differs.
 

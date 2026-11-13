@@ -3,8 +3,8 @@
 ```mermaid
 flowchart LR
   G["/dt-start<br/>grill · user chooses tier · writes brief + tickets"] --> P{"Plan<br/>/dt-approve plan"}
-  P -->|"T0/T1: ticket 00"| L["/dt-lane<br/>scenarios red → TDD green → verify → PR"]
-  P -->|"T2: ticket 00 skeleton first"| L
+  P -->|"T0/T1: starts ticket 00"| L["Build<br/>scenarios red → TDD green → verify → PR"]
+  P -->|"T2: /dt-lane · skeleton first"| L
   L --> R["/dt-review id<br/>findings in chat · optional fixes"]
   R --> M["human merges PRs"]
   M --> C{"Ticket closure<br/>/dt-check-merged"}
@@ -22,7 +22,7 @@ flowchart LR
 
 ## Sessions are disposable
 
-The grill gives a short task summary and asks you to choose T0, T1 or T2 without guessing or recommending a tier. Only after your explicit choice does it write the plan and save a plan proposal; the chat choice approves nothing. `/dt-approve plan` asks you to confirm the slug, creates the project, records approval and selects it. Following slash commands omit the slug: `/dt-lane`, `/dt-review <id>`, `/dt-check-merged`, `/dt-revise`, `/dt-status`. The footer shows the selection above the model name. Selection is stored in the Pi session and scoped to the repo/feature directory; reopening, reloading or forking restores it. A new session starts unselected; `/dt-resume [slug]` selects an existing feature. Starting a new grill clears the old selection. The underlying dt.mjs CLI still requires explicit slugs.
+The grill gives a short task summary and asks you to choose T0, T1 or T2 without guessing or recommending a tier. Only after your explicit choice does it write the plan and save a plan proposal; the chat choice approves nothing. `/dt-approve plan` asks you to confirm the slug, creates the project, records approval and selects it. For T0/T1, the same confirmation starts ticket 00 in the current checkout after safety checks; warnings require a separate Start anyway decision. A blocked start keeps the plan approved, and `/dt-lane 00` retries or resumes with normal ticket confirmation. T2 still needs `/dt-lane`. Following slash commands omit the slug: `/dt-lane`, `/dt-review <id>`, `/dt-check-merged`, `/dt-revise`, `/dt-status`. The footer shows the selection above the model name. Selection is stored in the Pi session and scoped to the repo/feature directory; reopening, reloading or forking restores it. A new session starts unselected; `/dt-resume [slug]` selects an existing feature. Starting a new grill clears the old selection. The underlying dt.mjs CLI still requires explicit slugs.
 
 Everything after the grill reads the feature folder, so any step can continue in a fresh session. `/dt-revise` writes its outcome straight into the brief and tickets; nothing depends on chat history.
 
@@ -37,7 +37,7 @@ The plan reflects the grill, not new design. T2 gets a one-to-two page brief (`s
 | Initial plan | G0 (new project); G2 stores its usable approval | `/dt-approve plan` |
 | Ticket closure | G3 | `/dt-check-merged` checks every open ticket's PRs live on GitHub and closes each ticket whose PRs are all merged. |
 
-Only `/dt-approve plan` approves an initial plan, and only `/dt-check-merged` closes tickets after you merge. Later `/dt-revise` edits keep that approval intact after any unsettled decisions are answered in chat; they do not require a second formal approval. Legacy pending gates still follow their saved confirmation path and are not silently cleared. No approval merges a PR or starts implementation. Ticket closure does not claim staging or production acceptance.
+Only `/dt-approve plan` approves an initial plan, and only `/dt-check-merged` closes tickets after you merge. Later `/dt-revise` edits keep that approval intact after any unsettled decisions are answered in chat; they do not require a second formal approval. Legacy pending gates still follow their saved confirmation path and are not silently cleared. New T0/T1 approvals also start ticket 00; T2 and legacy revision approvals do not start implementation. No approval merges a PR. Ticket closure does not claim staging or production acceptance.
 
 Code review is not a gate: `/dt-review` reads code, suggests actionable improvements in chat and offers to fix user-selected items. It never posts PR reviews or comments. Re-review after fixes is optional.
 

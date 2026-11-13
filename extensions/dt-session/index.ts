@@ -33,6 +33,13 @@ export default async function (pi: ExtensionAPI) {
 	let footerSession: string | undefined, requestFooterRender: (() => void) | undefined;
 	let status: string | undefined;
 	const laneProjects = new Set<string>();
+	let approvedStart: { project: Project; session: string; cwd: string; ticketContent: string } | undefined;
+	pi.events.on("dt:lane:approved", (request: { project: Project; ctx: ExtensionContext; ticketContent: string; accepted: boolean }) => {
+		refreshSelection(request.ctx);
+		if (!project || project.scopeId !== request.project.scopeId || !["T0", "T1"].includes(project.tier)) return;
+		approvedStart = { project, session: request.ctx.sessionManager.getSessionId(), cwd: request.ctx.cwd, ticketContent: request.ticketContent };
+		request.accepted = true;
+	});
 
 	const readRepo = async (ctx: ExtensionContext): Promise<Repo> => {
 		const result = await pi.exec("node", [dt, "info", "--json"], { cwd: ctx.cwd, timeout: 5000 });
@@ -97,6 +104,7 @@ export default async function (pi: ExtensionAPI) {
 		refreshSelection(request.ctx);
 	});
 	pi.on("session_start", async (_event, ctx) => {
+		approvedStart = undefined;
 		currentCtx = ctx;
 		repo = null;
 		repoCwd = undefined;
@@ -109,6 +117,7 @@ export default async function (pi: ExtensionAPI) {
 		if (project) updateUI(ctx);
 	});
 	pi.on("session_tree", async (_event, ctx) => {
+		approvedStart = undefined;
 		branchReader.invalidate();
 		await restoreRepo(ctx);
 		refreshSelection(ctx);
@@ -129,6 +138,9 @@ export default async function (pi: ExtensionAPI) {
 	};
 	pi.registerMessageRenderer(TICKET_MESSAGE, createTicketRenderer({ Box, Markdown, Text, getMarkdownTheme }));
 	pi.on("input", async (event, ctx) => {
+		// Approval consent is single-use and applies only to the immediate extension kickoff.
+		const kickoff = approvedStart;
+		approvedStart = undefined;
 		if (!/^\/dt-[\w-]+(?:\s|$)/.test(event.text)) return { action: "continue" };
 		refreshSelection(ctx);
 		if (/^\/dt-start(?:\s|$)/.test(event.text)) {
@@ -155,6 +167,11 @@ export default async function (pi: ExtensionAPI) {
 			if (text?.startsWith("/dt-lane ") && project) {
 				const selectedProject = project;
 				const [, , id, option] = text.split(" ");
+				const session = ctx.sessionManager.getSessionId();
+				const approvedContent = kickoff && event.source === "extension" && event.text === "/dt-lane 00" &&
+					kickoff.session === session && kickoff.cwd === ctx.cwd && kickoff.project.scopeId === selectedProject.scopeId &&
+					kickoff.project.slug === selectedProject.slug && kickoff.project.key === selectedProject.key && kickoff.project.base === selectedProject.base
+					? kickoff.ticketContent : undefined;
 				const { snapshot, warnings } = await withLaneFeedback(ctx, `Checking ticket ${id}: repository, claims and start warnings…`, async () => {
 					const { snapshot } = await loadSnapshot(ctx, selectedProject);
 					const checked = await pi.exec("node", [dt, "next", selectedProject.slug, "--ticket", id, "--owner", ctx.sessionManager.getSessionId(), "--check-only", "--json", ...(option === "force" ? ["--force"] : []), ...(option === "override" ? ["--override"] : [])], { cwd: ctx.cwd, timeout: 60000 });
@@ -164,10 +181,10 @@ export default async function (pi: ExtensionAPI) {
 					return { snapshot, warnings };
 				});
 				const { confirmTicket } = await load("./ticket-preview.mjs");
-				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: option === "force", override: option === "override", warnings })) return { action: "handled" };
+				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: option === "force", override: option === "override", warnings, approvedContent })) return { action: "handled" };
 				if (warnings.length || option === "override") text = `/dt-lane ${selectedProject.slug} ${id} override`;
 				refreshSelection(ctx);
-				if (project?.slug !== selectedProject.slug || project?.key !== selectedProject.key || project?.base !== selectedProject.base) throw new Error("Project changed during confirmation. Run /dt-lane again.");
+				if (ctx.sessionManager.getSessionId() !== session || project?.scopeId !== selectedProject.scopeId || project?.slug !== selectedProject.slug || project?.key !== selectedProject.key || project?.base !== selectedProject.base) throw new Error("Project changed during confirmation. Run /dt-lane again.");
 				laneProjects.add(selectedProject.slug);
 			}
 			return text ? { action: "transform", text, images: event.images } : { action: "continue" };

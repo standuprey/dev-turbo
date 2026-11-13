@@ -27,7 +27,8 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 	const jiti = createJiti(join(pkg, "package.json"), { alias: { "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js"), "@earendil-works/pi-tui": join(pkg, "../pi-tui/dist/index.js"), "@earendil-works/pi-ai": ai } });
 	const session = await jiti.import(join(import.meta.dirname, "../extensions/dt-session/index.ts"), { default: true });
 	const approve = await jiti.import(join(import.meta.dirname, "../extensions/dt-approve/index.ts"), { default: true });
-	const entries = [], notices = [], messages = [], gateCalls = [], handlers = new Map(), bus = new Map(), tools = new Map();
+	const entries = [], notices = [], messages = [], gateCalls = [], starts = [], preflights = [], confirmations = [], handlers = new Map(), bus = new Map(), tools = new Map();
+	let startWarnings = [], failPreflight = false;
 	let command, check, confirmed = true, failGate = false, ticketPr = "OPEN", failPr = false, blockedSecond = false;
 	const prChecks = [], openPrs = new Set();
 	const pi = {
@@ -36,7 +37,8 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 		appendEntry(customType, data) { entries.push({ type: "custom", customType, data }); },
 		registerTool(tool) { tools.set(tool.name, tool); }, registerMessageRenderer() {},
 		registerCommand(name, definition) { if (name === "dt-check-merged") check = definition; else { assert.equal(name, "dt-approve"); command = definition; } },
-		sendMessage(message) { messages.push(message); }, sendUserMessage() { throw new Error("Approvals must not start the model"); },
+		sendMessage(message) { messages.push(message); },
+		sendUserMessage(text, options) { starts.push({ text, options }); },
 		async exec(cmd, args) {
 			if (cmd === "gh") {
 				assert.deepEqual(args.slice(-2), ["--json", "state"]);
@@ -48,6 +50,12 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 				throw new Error("Every PR check names the repository");
 			}
 			if (args[1] === "info") return { code: 0, stdout: JSON.stringify(repo) };
+			if (args[1] === "next") {
+				assert.ok(args.includes("--check-only"));
+				assert.equal(args[args.indexOf("--owner") + 1], "session");
+				preflights.push(args);
+				return failPreflight ? { code: 1, stderr: "Inspection unavailable" } : { code: 0, stdout: JSON.stringify({ warnings: startWarnings }) };
+			}
 			assert.equal(args[1], "gate"); assert.equal(args[4], "approve");
 			if (failGate) return { code: 1, stderr: "Simulated approval failure" };
 			gateCalls.push(args);
@@ -65,7 +73,7 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 			return { code: 0, stdout: "Approval recorded" };
 		},
 	};
-	const ctx = { cwd: "/repo", mode: "print", hasUI: true, isIdle: () => true, sessionManager: { getBranch: () => entries, getSessionId: () => "session" }, ui: { confirm: async () => confirmed, notify(...args) { notices.push(args); }, setStatus() {}, setFooter() {} } };
+	const ctx = { cwd: "/repo", mode: "print", hasUI: true, isIdle: () => true, sessionManager: { getBranch: () => entries, getSessionId: () => "session" }, ui: { confirm: async (title, body) => { confirmations.push({ title, body }); return confirmed; }, notify(...args) { notices.push(args); }, setStatus() {}, setFooter() {} } };
 	await session(pi); await approve(pi);
 	for (const fn of handlers.get("session_start")) await fn({}, ctx);
 	const proposal = tools.get("dt_propose_plan"), params = { slug: "demo", tier: "T2", type: "service", note: "Task scope" };
@@ -85,7 +93,7 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 	// Editing the plan while the dialog is open invalidates the confirmation.
 	ctx.ui.confirm = async () => { await writeFile(spec, "Brief v2"); return true; };
 	await command.handler("plan", ctx); assert.equal(gateCalls.length, 0);
-	ctx.ui.confirm = async () => confirmed;
+	ctx.ui.confirm = async (title, body) => { confirmations.push({ title, body }); return confirmed; };
 	await command.handler("plan", ctx);
 	assert.equal(gateCalls.length, 1);
 	assert.equal(gateCalls[0][3], "0");
@@ -170,7 +178,13 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 	assert.match(pending.content, /G2 pending recorded/);
 	assert.equal((await read()).gates.G2.state, "pending");
 	assert.equal((await read()).next, "/dt-approve plan");
-	// T0/T1 tasks are one-ticket plans with the same approvals.
+	assert.equal(starts.length, 0, "T2 and legacy revision approvals do not start implementation");
+	const runStart = async () => {
+		const start = starts.at(-1);
+		assert.deepEqual(start.options, { expandPromptTemplates: true });
+		return handlers.get("input")[0]({ text: start.text, source: "extension" }, ctx);
+	};
+	// One confirmation approves and starts a single-ticket task; warnings still need consent.
 	for (const tier of ["T0", "T1"]) {
 		const slug = `quick-${tier.toLowerCase()}`, quickFolder = join(repo.featuresBase, slug);
 		await mkdir(join(quickFolder, "tickets"), { recursive: true });
@@ -179,16 +193,57 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 		await assert.rejects(proposal.execute("id", { ...params, slug, tier }, undefined, undefined, ctx), /exactly one ticket/);
 		await rm(join(quickFolder, "tickets/01-extra.md"));
 		await proposal.execute("id", { ...params, slug, tier }, undefined, undefined, ctx);
-		const before = gateCalls.length;
+		const before = gateCalls.length, beforeStarts = starts.length, beforeConfirmations = confirmations.length;
+		confirmed = false;
+		await command.handler("plan", ctx);
+		assert.equal(starts.length, beforeStarts, "cancelled approval must not start work");
+		confirmed = true;
+		const confirm = ctx.ui.confirm, ticketFile = join(quickFolder, "tickets/00-fix.md");
+		ctx.ui.confirm = async (title, body) => {
+			await writeFile(ticketFile, '---\nid: "00"\ntitle: Updated fix\n---\n');
+			return confirm(title, body);
+		};
+		await command.handler("plan", ctx);
+		assert.equal(gateCalls.length, before, "a new proposal must hash its own files even with an existing project selected");
+		assert.equal(starts.length, beforeStarts);
+		ctx.ui.confirm = confirm;
 		await command.handler("plan", ctx);
 		assert.equal(gateCalls.length, before + 1);
 		assert.equal(entries.filter((e) => e.customType === "dt-project").at(-1).data.tier, tier);
-		assert.ok(messages.at(-1).content.endsWith("- `/dt-lane`"));
+		assert.equal(starts.length, beforeStarts + 1);
+		assert.match(confirmations.at(-1).title, /Approve.*start/);
+		assert.match(confirmations.at(-1).body, /current checkout/);
+		assert.equal(confirmations.length, beforeConfirmations + 3);
+		const beforeStartConfirmations = confirmations.length;
+		assert.equal((await runStart()).text, `/dt-lane ${slug} 00`);
+		assert.equal(preflights.at(-1)[2], slug);
+		assert.equal(confirmations.length, beforeStartConfirmations, "clean start needs no second confirmation");
+		await handlers.get("input")[0]({ text: "/dt-lane 00", source: "interactive" }, ctx);
+		assert.equal(confirmations.length, beforeStartConfirmations + 1, "later resumes still confirm the ticket");
 		const quickFile = join(quickFolder, "progress.json");
 		const q = JSON.parse(await readFile(quickFile, "utf8")); q.tickets["00"] = { status: "review", prs: [{ number: 789, state: "merged" }] };
 		await writeFile(quickFile, JSON.stringify(q));
 		await check.handler("", ctx);
 		assert.equal(JSON.parse(await readFile(quickFile, "utf8")).tickets["00"].status, "done");
 		assert.ok(messages.at(-1).content.endsWith("No next command."));
+	}
+	for (const outcome of ["cancel", "override", "failed-check", "changed-ticket"]) {
+		const slug = `quick-${outcome}`, folder = join(repo.featuresBase, slug), ticket = join(folder, "tickets/00.md");
+		await mkdir(join(folder, "tickets"), { recursive: true });
+		await writeFile(ticket, '---\nid: "00"\ntitle: Fix\n---\n');
+		await proposal.execute("id", { ...params, slug, tier: "T1" }, undefined, undefined, ctx);
+		await command.handler("plan", ctx);
+		startWarnings = ["Dirty checkout"];
+		confirmed = outcome !== "cancel";
+		failPreflight = outcome === "failed-check";
+		if (outcome === "changed-ticket") await writeFile(ticket, '---\nid: "00"\ntitle: Changed\n---\n');
+		const result = await runStart();
+		if (outcome === "override") {
+			assert.equal(result.text, `/dt-lane ${slug} 00 override`);
+			assert.match(confirmations.at(-1).title, /Start anyway/);
+			assert.match(confirmations.at(-1).body, /Dirty checkout/);
+		} else assert.deepEqual(result, { action: "handled" });
+		assert.equal(JSON.parse(await readFile(join(folder, "progress.json"), "utf8")).gates.G2.state, "approved", "a blocked start preserves approval");
+		startWarnings = []; failPreflight = false; confirmed = true;
 	}
 });

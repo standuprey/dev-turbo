@@ -1,4 +1,4 @@
-/** Plan approval and merge-based ticket closure. Never invokes the model or merges a PR. */
+/** Plan approval, single-ticket startup and merge-based ticket closure. Never merges a PR. */
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,16 +24,17 @@ export default async function (pi: ExtensionAPI) {
 		const project = restoreProject(branch, repo), scope = scopeProposal(branch, repo);
 		const scopeFeature = scope && existsSync(join(repo.featuresBase, scope.slug, "feature.json")) ? JSON.parse(await readFile(join(repo.featuresBase, scope.slug, "feature.json"), "utf8")) : null;
 		const snapshot = project ? logic.readFeatureStatus(repo, project.slug) : null;
-		let revision;
+		let revision, quickTicketContent;
 		if (withRevision) {
 			// A pending plan's files are hashed too, so edits during confirmation are caught.
 			const planDir = scope ? join(repo.featuresBase, scope.slug) : null;
 			const planFiles = planDir ? [join(planDir, "spec.md"), ...(existsSync(join(planDir, "tickets")) ? (await readdir(join(planDir, "tickets"))).filter((f) => f.endsWith(".md")).sort().map((f) => join(planDir, "tickets", f)) : [])] : [];
-			const files = snapshot ? [snapshot.p.feature, snapshot.p.progress, snapshot.p.spec, ...snapshot.tickets.map((t: { file: string }) => t.file)] : planFiles;
+			const files = scope ? planFiles : snapshot ? [snapshot.p.feature, snapshot.p.progress, snapshot.p.spec, ...snapshot.tickets.map((t: { file: string }) => t.file)] : [];
 			const contents = await Promise.all(files.map(async (file: string) => { try { return await readFile(file, "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw e; } }));
+			if (scope && ["T0", "T1"].includes(scope.tier)) quickTicketContent = contents[files.findIndex((file: string) => file.includes(`${join(planDir!, "tickets")}/`))];
 			revision = createHash("sha256").update(JSON.stringify({ scope, project, contents })).digest("hex");
 		}
-		return { logic, repo, branch, project, scope, snapshot, revision, existingScope: Boolean(scopeFeature) };
+		return { logic, repo, branch, project, scope, snapshot, revision, quickTicketContent, existingScope: Boolean(scopeFeature) };
 	};
 	const exec = async (command: string, args: string[], ctx: ExtensionContext) => {
 		const r = await pi.exec(command, args, { cwd: ctx.cwd, timeout: 120000 });
@@ -56,7 +57,7 @@ export default async function (pi: ExtensionAPI) {
 		if (lock) { try { await rmdir(lock); } catch { ctx.ui.notify(`Approval lock could not be removed: ${lock}`, "warning"); } }
 	};
 	pi.registerCommand("dt-approve", {
-		description: "Approve a new plan or a legacy pending revision",
+		description: "Approve a plan; also start ticket 00 for a new T0/T1 project",
 		getArgumentCompletions: async (prefix) => {
 			if (!currentCtx) return null;
 			try { return approvalCompletions(await view(currentCtx), prefix); } catch { return null; }
@@ -74,9 +75,11 @@ export default async function (pi: ExtensionAPI) {
 				const session = ctx.sessionManager.getSessionId();
 				const plan = approvalPlan(initial, name, rest);
 				const title = NAMES[plan.name].label;
+				const startQuick = plan.id === 0 && ["T0", "T1"].includes(plan.tier);
+				const startNote = startQuick ? "\nApproval also starts ticket 00 in the current checkout. Start warnings require a separate decision." : "";
 				const extra = plan.id === 0 ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}` : "";
 				const summary = (plan.id === 0 ? plan.note : initial.snapshot.prog.gates.G2?.note) || "Review the saved plan before confirming.";
-				if (!await ctx.ui.confirm(`Approve ${title}?`, `${plan.slug}${extra}\n${summary}`)) return;
+				if (!await ctx.ui.confirm(`Approve ${title}${startQuick ? " and start ticket 00" : ""}?`, `${plan.slug}${extra}\n${summary}${startNote}`)) return;
 				if (currentCtx?.sessionManager.getSessionId() !== session) throw new Error("Session changed while confirming. No approval was applied.");
 				lock = await acquireLock(initial.repo, plan.slug);
 				const fresh = await view(ctx, true);
@@ -93,7 +96,13 @@ export default async function (pi: ExtensionAPI) {
 					pi.events.emit("dt:project:select", { project, repo: fresh.repo, ctx });
 				}
 				const updated = await view(ctx);
-				pi.sendMessage({ customType: "dt-approve", display: true, details: { gate: plan.name }, content: `## Approved: ${title}\n\nProject: ${plan.slug}\n\n## Next commands\n${nextCommandText(nextCommands(updated, updated.logic))}` });
+				pi.sendMessage({ customType: "dt-approve", display: true, details: { gate: plan.name }, content: `## Approved: ${title}\n\nProject: ${plan.slug}\n\n${startQuick ? "Starting ticket 00 after checking repository, claims and start warnings. If blocked, approval is retained; retry with /dt-lane 00." : `## Next commands\n${nextCommandText(nextCommands(updated, updated.logic))}`}` });
+				if (startQuick) {
+					const request = { project: updated.project, ctx, ticketContent: initial.quickTicketContent, accepted: false };
+					pi.events.emit("dt:lane:approved", request);
+					if (!request.accepted) throw new Error("Ticket startup is unavailable. Run /dt-lane 00 after loading the session extension.");
+					pi.sendUserMessage("/dt-lane 00", { expandPromptTemplates: true });
+				}
 			} catch (e) { ctx.ui.notify(`dt-approve: ${applied ? "Approval was recorded, but a follow-up failed: " : ""}${e instanceof Error ? e.message : String(e)}`, "error"); }
 			finally {
 				await releaseLock(lock, ctx);
