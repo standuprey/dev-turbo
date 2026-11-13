@@ -44,8 +44,12 @@ export async function confirmTicket({ pi, ctx, project, snapshot, id, force = fa
     ctx.ui.notify("Ticket summary displayed; starting requires confirmation in an interactive or RPC session. Use an explicit /dt-lane <id> override to accept start warnings without a dialog. No claim or work has started.", "warning");
     return false;
   }
-  const confirmed = await ctx.ui.confirm(`${warnings.length || override ? "Start anyway" : "Start/resume"} ticket ${ticket.id} · ${project.slug}?`,
-    `${summary}\n\n${warningText}${overrideText}${force ? "This will request a force takeover; it does not stop the previous agent.\n" : ""}${warnings.length || override ? "Start anyway and accept these warnings?" : "Is this the ticket you want to work on?"}`);
+  // Keep terminal styling out of RPC dialog text.
+  const emphasize = (text) => text && ctx.mode === "tui" ? ctx.ui.theme.bold(ctx.ui.theme.fg("error", text)) : text;
+  const title = `${warnings.length || override ? "Start anyway" : "Start/resume"} ticket ${ticket.id} · ${project.slug}?`;
+  const risks = `${warningText}${overrideText}${force ? "This will request a force takeover; it does not stop the previous agent.\n" : ""}`;
+  const confirmed = await ctx.ui.confirm(risks ? emphasize(title) : title,
+    `${summary}\n\n${emphasize(risks)}${warnings.length || override ? "Start anyway and accept these warnings?" : "Is this the ticket you want to work on?"}`);
   if (!confirmed) return false;
   if (await readFile(ticket.file, "utf8") !== ticket.content) throw new Error("Ticket changed during confirmation. Run /dt-lane again to review it.");
   return true;

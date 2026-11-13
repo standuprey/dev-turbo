@@ -101,6 +101,45 @@ test("start warnings use the existing confirmation and explicit non-UI overrides
   assert.match(notices.at(-1), /Explicit override requested/);
 });
 
+test("terminal start warnings and force takeovers use bold error color; RPC stays plain", async (t) => {
+  const { snapshot } = await fixture(t);
+  const styled = [];
+  let dialog;
+  const args = { snapshot, id: "01", project: { slug: "demo" }, warnings: ["claimed by another session"], pi: { sendMessage() {} }, ctx: {
+    hasUI: true, mode: "tui", ui: {
+      theme: { fg(color, text) { styled.push({ color, text }); return `<${color}>${text}</${color}>`; }, bold: (text) => `<bold>${text}</bold>` },
+      async confirm(title, body) { dialog = { title, body }; return false; },
+    },
+  } };
+  assert.equal(await confirmTicket(args), false);
+  assert.match(dialog.title, /^<bold><error>Start anyway/);
+  assert.match(dialog.body, /<bold><error>Start warnings:\n- claimed by another session/);
+  assert.match(dialog.body, /does not stop other agents/);
+  assert.ok(styled.every(({ color }) => color === "error"));
+  assert.ok(!styled.some(({ text }) => text.includes("Keep portal styles")), "ticket summary stays unstyled");
+
+  for (const mode of ["rpc", "print"]) {
+    args.ctx.mode = mode;
+    styled.length = 0;
+    await confirmTicket(args);
+    assert.equal(styled.length, 0);
+    assert.doesNotMatch(dialog.title + dialog.body, /<bold>|<error>|\x1b/);
+    assert.match(dialog.body, /claimed by another session/);
+  }
+
+  args.ctx.mode = "tui";
+  args.warnings = [];
+  await confirmTicket(args);
+  assert.doesNotMatch(dialog.title + dialog.body, /<bold>|<error>/);
+  args.force = true;
+  await confirmTicket(args);
+  assert.match(dialog.body, /<bold><error>This will request a force takeover/);
+  args.force = false;
+  args.override = true;
+  await confirmTicket(args);
+  assert.match(dialog.body, /<bold><error>Starting anyway overrides/);
+});
+
 test("a ticket edited while its confirmation is open must be reviewed again", async (t) => {
   const { snapshot, file } = await fixture(t);
   await assert.rejects(confirmTicket({ snapshot, id: "01", project: { slug: "demo" }, pi: { sendMessage() {} }, ctx: {
