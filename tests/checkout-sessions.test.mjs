@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { otherCheckoutSessions } from "./checkout-sessions.mjs";
+import { otherCheckoutSessions } from "../checkout-sessions.mjs";
 
 const inspect = (rows, cwds, extra = {}) => otherCheckoutSessions("/repo", {
   pid: 30, realpath: (p) => p === "/alias" ? "/repo" : p,

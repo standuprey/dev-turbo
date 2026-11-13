@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, stat, symlink, rm } from 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { screenshotReferences, readTicketScreenshots, exportTicketScreenshots, createTicketRenderer } from "./extensions/dt-session/ticket-screenshots.mjs";
-import { displayTicket } from "./extensions/dt-session/ticket-preview.mjs";
+import { screenshotReferences, readTicketScreenshots, exportTicketScreenshots, createTicketRenderer } from "../extensions/dt-session/ticket-screenshots.mjs";
+import { displayTicket } from "../extensions/dt-session/ticket-preview.mjs";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGQAAAABJRU5ErkJggg==", "base64");
 async function fixture(t) {

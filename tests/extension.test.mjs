@@ -1,5 +1,5 @@
 import fs from "node:fs";
-// Optional runtime integration tests: PI_PACKAGE_DIR=<installed pi package> node --test extension.test.mjs
+// Optional runtime integration tests: PI_PACKAGE_DIR=<installed pi package> node --test tests/extension.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createRequire } from "node:module";
@@ -7,7 +7,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createProjectFooter } from "./extensions/dt-session/footer.mjs";
+import { createProjectFooter } from "../extensions/dt-session/footer.mjs";
 
 const piPackage = process.env.PI_PACKAGE_DIR;
 
@@ -23,10 +23,10 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 		"@earendil-works/pi-tui": join(piPackage, "../pi-tui/dist/index.js"),
 		"@earendil-works/pi-ai": (fs.existsSync(join(piPackage, "dist/core/extensions/pi-ai-extension-view.js")) ? join(piPackage, "dist/core/extensions/pi-ai-extension-view.js") : join(piPackage, "../pi-ai/dist/compat.js")),
 	} });
-	const session = await jiti.import(join(import.meta.dirname, "extensions/dt-session/index.ts"), { default: true });
-	const resume = await jiti.import(join(import.meta.dirname, "extensions/dt-resume.ts"), { default: true });
+	const session = await jiti.import(join(import.meta.dirname, "../extensions/dt-session/index.ts"), { default: true });
+	const resume = await jiti.import(join(import.meta.dirname, "../extensions/dt-resume.ts"), { default: true });
 	const repo = { key: "org/repo", featuresBase: join(dir, "features"), root: "/repo" };
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	await mkdir(join(repo.featuresBase, "checkout", "tickets"), { recursive: true });
 	await writeFile(join(repo.featuresBase, "checkout", "feature.json"), JSON.stringify({ slug: "checkout", tier: "T2", type: "service" }));
 	await writeFile(join(repo.featuresBase, "checkout", "progress.json"), JSON.stringify({ tickets: {} }));
@@ -56,6 +56,10 @@ test("Pi runtime: confirmation, persistence, defaults, resume and safe failures"
 			calls.push({ command, args, options });
 			if (args[1] === "info") return { code: 0, stdout: JSON.stringify(repo) };
 			if (args[1] === "progress") return { code: 0, stdout: "released" };
+			if (args[1] === "next") {
+				assert.ok(args.includes("--check-only"), "before confirmation only read-only preflight is allowed");
+				return { code: 0, stdout: JSON.stringify({ warnings: [] }) };
+			}
 			if (args[1] === "gate") return gateFailure ? { code: 1, stderr: "Gate 0 failed" } : { code: 0, stdout: "G0 approved" };
 			if (args[1] === "resume") {
 				if (localResumeFailure && args.includes("--no-gh")) return { code: 1, stderr: "Local state unreadable" };
@@ -179,11 +183,11 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "done", verification: "tests passed" } }, next: "Run acceptance checks" });
 	await writeFile(join(base, "demo", "progress.json"), progress);
 	await writeFile(join(base, "demo", "tickets/00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\n');
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	const require = createRequire(join(piPackage, "package.json"));
 	const { createJiti } = require("jiti");
 	const jiti = createJiti(join(piPackage, "package.json"), { alias: { "@earendil-works/pi-coding-agent": join(piPackage, "dist/index.js"), "@earendil-works/pi-tui": join(piPackage, "../pi-tui/dist/index.js") } });
-	const status = await jiti.import(join(import.meta.dirname, "extensions/dt-status/index.ts"), { default: true });
+	const status = await jiti.import(join(import.meta.dirname, "../extensions/dt-status/index.ts"), { default: true });
 	let command;
 	const notices = [], messages = [], renderers = new Map();
 	await status({ registerMessageRenderer(name, renderer) { renderers.set(name, renderer); }, registerCommand(name, definition) { assert.equal(name, "dt-status"); command = definition; }, sendMessage(message) { messages.push(message); }, sendUserMessage() { throw new Error("must not call model"); }, exec() { throw new Error("must not call CLI actions"); }, events: { emit() { throw new Error("must not depend on event handoff"); } } });

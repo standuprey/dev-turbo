@@ -20,7 +20,7 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "01": { status: "in_progress", lane: "lane 2", claim: { owner: "other", checkout: "/lane2" } }, "03": { status: "review" }, "04": { status: "done" } } });
   await writeFile(join(featureDir, "progress.json"), progress);
   for (const id of ["01", "02", "03", "04"]) await writeFile(join(featureDir, "tickets", `${id}.md`), `---\nid: "${id}"\ntitle: Ticket ${id}\ntouches: [module${id}]\nblocked_by: []\nunsafe_with: []\n---\n`);
-  await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+  await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
   const require = createRequire(join(piPackage, "package.json"));
   const { createJiti } = require("jiti");
   const jiti = createJiti(join(piPackage, "package.json"), { alias: {
@@ -28,7 +28,7 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
     "@earendil-works/pi-tui": join(piPackage, "../pi-tui/dist/index.js"),
     "@earendil-works/pi-ai": (fs.existsSync(join(piPackage, "dist/core/extensions/pi-ai-extension-view.js")) ? join(piPackage, "dist/core/extensions/pi-ai-extension-view.js") : join(piPackage, "../pi-ai/dist/compat.js")),
   } });
-  const session = await jiti.import(join(import.meta.dirname, "extensions/dt-session/index.ts"), { default: true });
+  const session = await jiti.import(join(import.meta.dirname, "../extensions/dt-session/index.ts"), { default: true });
   const handlers = new Map(), commands = new Map(), messages = [], confirmations = [], entries = [{ type: "custom", customType: "dt-project", data: project }], calls = [], notices = [], selections = [];
   let choice = "READY", confirmed = true;
   const ctx = { mode: "print", hasUI: true, cwd: "/lane1", sessionManager: { getBranch: () => entries, getSessionId: () => "here" }, ui: {
@@ -45,7 +45,15 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
     registerMessageRenderer() {}, registerCommand: (name, command) => commands.set(name, command),
     sendMessage: (message) => messages.push(message),
     appendEntry: (customType, data) => entries.push({ type: "custom", customType, data }),
-    exec: async (_command, args) => { calls.push(args); assert.equal(args[1], "info", "picker must not perform workflow writes"); return { code: 0, stdout: JSON.stringify(repo) }; },
+    exec: async (_command, args) => {
+      calls.push(args);
+      if (args[1] === "info") return { code: 0, stdout: JSON.stringify(repo) };
+      assert.equal(args[1], "next");
+      assert.ok(args.includes("--check-only"), "confirmation must not perform workflow writes");
+      const id = args[args.indexOf("--ticket") + 1];
+      const warnings = id === "01" ? ["ticket belongs to checkout /lane2", ...(!args.includes("--force") ? ["ticket claimed by other; takeover does not stop the previous agent"] : [])] : [];
+      return { code: 0, stdout: JSON.stringify({ warnings }) };
+    },
   });
   await handlers.get("session_start")({}, ctx);
   const input = (text) => handlers.get("input")({ text, source: "interactive" }, ctx);
@@ -65,9 +73,13 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   choice = "cancel";
   assert.equal((await input("/dt-lane")).action, "handled");
   choice = "LOCKED";
-  assert.equal((await input("/dt-lane")).action, "handled");
-  assert.match(notices.at(-1), /LOCKED.*\/dt-lane 01 force/);
-  assert.equal((await input("/dt-lane 01 force")).text, "/dt-lane demo 01 force");
+  assert.equal((await input("/dt-lane")).text, "/dt-lane demo 01 override");
+  assert.match(confirmations.at(-1).title, /Start anyway/);
+  assert.match(confirmations.at(-1).body, /claimed by other/);
+  confirmed = false;
+  assert.equal((await input("/dt-lane 01 override")).action, "handled");
+  confirmed = true;
+  assert.equal((await input("/dt-lane 01 force")).text, "/dt-lane demo 01 override");
   assert.match(confirmations.at(-1).body, /force takeover/);
   choice = "READY";
   assert.equal((await input("/dt-lane next")).text, "/dt-lane demo 02", "legacy next opens picker too");
@@ -79,7 +91,9 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   assert.equal((await input("/dt-lane 02")).action, "handled");
   assert.equal(confirmations.length, confirmationCount);
   assert.match(notices.at(-1), /requires confirmation/);
-  const status = await jiti.import(join(import.meta.dirname, "extensions/dt-status/index.ts"), { default: true });
+  assert.equal((await input("/dt-lane 02 override")).text, "/dt-lane demo 02 override");
+  assert.equal(confirmations.length, confirmationCount, "an explicit non-UI override is its own consent");
+  const status = await jiti.import(join(import.meta.dirname, "../extensions/dt-status/index.ts"), { default: true });
   await status({ registerMessageRenderer() {}, registerCommand: (name, command) => commands.set(name, command), sendMessage: (message) => messages.push(message) });
   const show = (args) => commands.get("dt-status").handler(args, ctx);
   await show("1"); // locked tickets are still readable, including in non-UI mode

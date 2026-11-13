@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ENTRY, restoreProject, resolveCommand, sessionCommand } from "./extensions/dt-session/state.mjs";
-import { aligned, usageTotals, createProjectFooter } from "./extensions/dt-session/footer.mjs";
+import { ENTRY, restoreProject, resolveCommand, sessionCommand } from "../extensions/dt-session/state.mjs";
+import { aligned, usageTotals, createProjectFooter } from "../extensions/dt-session/footer.mjs";
 
 const repo = { key: "org/repo", featuresBase: "/features/org/repo" };
 const project = { slug: "checkout", key: repo.key, base: repo.featuresBase, tier: "T2", type: "service" };
@@ -43,6 +43,9 @@ test("selected project supplies slug, task type and default ticket", () => {
 	assert.equal(resolveCommand("/dt-lane", project), "/dt-lane checkout");
 	assert.equal(resolveCommand("/dt-lane 00", project), "/dt-lane checkout 00");
 	assert.equal(resolveCommand("/dt-lane 01 force", project), "/dt-lane checkout 01 force");
+	assert.equal(resolveCommand("/dt-lane 01 override", project), "/dt-lane checkout 01 override");
+	assert.throws(() => resolveCommand("/dt-lane override", project), /Usage/);
+	assert.throws(() => resolveCommand("/dt-lane 01 force override", project), /Usage/);
 	assert.throws(() => resolveCommand("/dt-lane next force", project), /Usage/);
 	assert.throws(() => resolveCommand("/dt-lane force", project), /Usage/);
 	assert.equal(resolveCommand("/dt-review 07 autofix", project), "/dt-review checkout 07 autofix");

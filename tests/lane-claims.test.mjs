@@ -4,10 +4,10 @@ import { spawnSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import * as logic from "./dt.mjs";
-import { nextCommands } from "./extensions/dt-session/gates.mjs";
+import * as logic from "../dt.mjs";
+import { nextCommands } from "../extensions/dt-session/gates.mjs";
 
-const script = path.resolve(import.meta.dirname, "dt.mjs");
+const script = path.resolve(import.meta.dirname, "../dt.mjs");
 const ticket = (id) => ({ id, title: id, touches: [id], blocked_by: [], unsafe_with: [] });
 test("ready work routes to next, not another agent's active ticket or saved lane handover", () => {
   const tickets = [ticket("00"), ticket("01")];

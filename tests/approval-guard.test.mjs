@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalGuard } from "./extensions/dt-session/approval-guard.mjs";
+import { approvalGuard } from "../extensions/dt-session/approval-guard.mjs";
 
 const dt = "node ~/.pi/agent/dt/dt.mjs";
 // Incident-shaped reproduction: the later --next is one quoted data argument.

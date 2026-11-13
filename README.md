@@ -7,33 +7,33 @@ Prompt templates, one zero-dependency script and extensions for help, read-only 
 2. Plan the big building blocks, not the details. Interfaces are written as code in ticket 00 and reviewed in its PR; each lane writes its own scenarios from the ticket's outcome.
 3. Deep modules, one responsibility, one-way dependencies; one Mermaid notation for module diagrams.
 4. Vertical, demoable tickets; TDD inner loop; fresh context for review; state kept by `dt.mjs`, never hand-edited.
-5. The plan changes when reality does. `/dt-revise` edits the brief and unstarted tickets directly and asks for approval only when the plan's shape changes.
+5. The plan changes when reality does. Agents maintain the spec and editable tickets directly, asking about unsettled decisions in chat; `/dt-revise` is an optional coverage audit, not an editing or approval prerequisite.
 
 ## Flow
 
 **Move forward with a dt-command.** Discussion is for questions and adjustments; a chat "yes" never records approval.
 
-Start with `/dt-start <task>`. After the grill, it asks you to choose a tier and writes the plan: T0/T1 get one ticket; T2 gets a brief (`spec.md`) and a handful of tickets. The spec says what and why: behavior, goals, constraints and acceptance criteria. Tickets say how: slices, module ownership, dependencies, implementation approach and landing order. The shared building-block table and diagram live in ticket 00, not the spec. It saves a plan proposal only after your explicit choice. `/dt-approve plan` confirms the project name, records approval and selects the project. Following commands omit the slug. In a new session, `/dt-resume [slug]` selects an existing project; the footer shows its name.
+Start with `/dt-start <task>`. After the grill, it asks you to choose a tier and writes the plan: T0/T1 get one ticket; T2 gets a brief (`spec.md`) and a handful of tickets. The spec says what and why: behavior, goals, constraints and acceptance criteria. The shared module map lives in `spec.md`: exact `touches` keys, code/artifact paths, responsibilities and module dependencies. Tickets say how: slices, ticket/lane ownership, ticket dependencies, implementation approach and landing order. Ticket 00 builds the mapped modules' interfaces as compiling code; it does not own a duplicate module map. It saves a plan proposal only after your explicit choice. `/dt-approve plan` confirms the project name, records approval and selects the project. Following commands omit the slug. In a new session, `/dt-resume [slug]` selects an existing project; the footer shows its name.
 
 ### Commands
 
 | Command | What it does |
 |---|---|
 | `/dt-start <task>` | Grill, choose the tier, then write the brief and tickets. Clears the current selection. |
-| `/dt-approve plan` | Approve a new plan (creates and selects the project) or a revised one. |
-| `/dt-lane [id [force]]` | Open the ticket picker, or start/resume one ticket: scenarios red, TDD green, verify, PR. T0/T1 build ticket 00 in the current checkout on `quick/<slug>`. `force` takes over a claim in its saved checkout. |
+| `/dt-approve plan` | Approve a new plan (creates and selects the project); also honors legacy pending plan gates. |
+| `/dt-lane [id [force\|override]]` | Open the ticket picker, or start/resume one ticket: scenarios red, TDD green, verify, PR. T0/T1 build ticket 00 in the current checkout on `quick/<slug>`. `force` takes over a claim in its saved checkout; `override` accepts all start-policy warnings. |
 | `/dt-review [id \| branch] [autofix]` | Review in chat before merge; offer to fix selected findings. Re-review is optional. |
 | `/dt-check-merged` | After you merge, check every open ticket's PRs on GitHub, report their states and close each ticket whose PRs are all merged. |
-| `/dt-revise [change]` | Change the plan, or without a description check it against the landed code. |
+| `/dt-revise [change]` | Optionally request a plan edit, or without arguments audit spec/ticket coverage in both directions. |
 | `/dt-status [id]` | Show the saved board, or one full ticket and its saved progress. No model call. |
 | `/dt-resume [slug]` | Select or switch projects and show where one stands. |
 | `/dt-help` | Show this command flow. No model call. |
 
 ### T2 implementation loop
 
-When an implementation approach needs investigation, create a bounded spike with a question, experiment, effort limit and reviewed findings. Dependent tickets wait for it; findings settle the approach through `/dt-revise`, without rewriting the spec unless requirements change. A spike needed to design the skeleton can run before 00.
+When an implementation approach needs investigation, create a bounded spike with a question, experiment, effort limit and reviewed findings. Dependent tickets wait for it; after findings are reviewed, agents update the affected editable tickets directly, updating the spec only when requirements or the shared module map change. A spike needed to design the skeleton can run before 00.
 
-Ticket 00 is the walking skeleton: the building blocks' interfaces as compiling code, fakes and one trivial path through every layer. Every later implementation ticket waits for it; prerequisite spikes do not. After 00 is closed, **repeat for each ready ticket**; tickets with shared `touches` or `unsafe_with` pairs never run together, and there is no in-flight limit.
+Ticket 00 is the walking skeleton: the building blocks' interfaces as compiling code, fakes and one trivial path through every layer. Every later implementation ticket waits for it; prerequisite spikes do not. After 00 is closed, **repeat for each ready ticket**; shared `touches` and `unsafe_with` pairs warn before concurrent work and require an explicit override, and there is no in-flight limit.
 
 ```text
 ┌──────┐    ┌───────────────┐    ┌────────────┐    ┌────────────┐    ┌─────┐
@@ -52,34 +52,33 @@ Ticket 00 is the walking skeleton: the building blocks' interfaces as compiling 
 
 ### Changing the plan
 
-`/dt-revise <change>` asks a few questions, then edits only the affected files. Implementation-only changes leave the spec untouched; behavior or constraint changes update the spec and affected tickets. `/dt-revise` without a description compares landed behavior with the spec and implementation with tickets, asks you to confirm differences, then updates the appropriate files or turns needed code fixes into new tickets.
+Agents may update the spec and editable tickets directly during implementation or review. No `/dt-revise` invocation is required. `/dt-revise <change>` remains an optional way to request a focused edit, with questions only for unresolved decisions. Implementation-only changes that do not affect the module map leave the spec untouched; behavior, constraint or module-map changes update the spec and affected tickets. Missing module definitions are backfilled in the spec, not in completed tickets. `/dt-revise` without arguments audits coverage between the spec and tickets in both directions: missing requirements, unplanned outcomes, contradictions, module-map definitions and dependency gaps. Clear documentation mismatches can be fixed directly; unresolved scope/design choices are asked in chat. Code is consulted only for factual ambiguity or an explicitly requested code-alignment audit.
 
-| Change | Approval |
-|---|---|
-| Wording, scope inside a module, a new ticket that depends only on existing ones, confirmed requirement clarifications | None. Continue with `/dt-lane`. |
-| A building block is added, removed or changes owner; in-flight work must change; a ready ticket's dependencies change | `/dt-approve plan`. New starts wait; work in flight continues. |
+No renewed plan approval is required after `/dt-revise`, even when building blocks, scope or ticket dependencies change. The agent asks about unsettled decisions in chat before editing; a clear requested change does not need another confirmation. Once those decisions are settled, edits take effect under the original plan approval and work continues with `/dt-lane`. In-flight scope-change handovers and lane claims still apply.
 
-Done and merged tickets are never reopened; extra work becomes a new ticket. A T0/T1 task stays one ticket; bigger changes become a new T2 project.
+By default, done and merged tickets stay closed and extra work becomes a new ticket; explicit ticket-start override can reopen them while preserving old PR facts. A T0/T1 task stays one ticket; bigger changes become a new T2 project.
 
 ### Ticket picker and lane ownership
 
-Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when ready work fits alongside existing tickets. The picker reads saved local state; it does not refresh GitHub or change progress. Available tickets appear first, and accepted tickets are omitted.
+Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when ready work fits alongside existing tickets. The picker reads saved local state; it does not refresh GitHub or change progress. Tickets without warnings appear first, and accepted tickets are omitted from the picker; an explicit ID with override can reopen completed work.
 
 | Picker label | Meaning / action |
 |---|---|
 | **READY** | Available to start in this checkout. Select it to build. |
 | **RESUME** | In-progress work available to resume here. Select it to continue. |
-| **LOCKED** | Owned by another session or assigned to another checkout. The row shows its owner/lane. Selecting it explains the lock; it does not start work or take over. |
-| **BLOCKED** | Cannot start yet. The row shows the dependency, plan approval, saved blocker or resource limit. |
-| **REVIEW** | Use `/dt-review <id>`. |
-| **MERGED** | Use `/dt-check-merged` to confirm on GitHub and close it. |
+| **WARNING (LOCKED)** | Another owner or checkout. Select to inspect the warning, then choose Start anyway to override; the old agent is not stopped. |
+| **WARNING (BLOCKED)** | Unmet dependency, plan gate, saved blocker, shared module or unsafe pair. Select to inspect all warnings and explicitly override them. |
+| **WARNING (REVIEW)** | Normally use `/dt-review <id>`; direct work can be resumed after confirmation. |
+| **WARNING (MERGED)** | Normally use `/dt-check-merged`; overriding reopens work and requires a fresh PR before closure. |
 
-**Canceling changes nothing.** After selection, the extension displays a short summary with the ticket ID, title and outcome, then asks whether it is the ticket you want to work on. This also applies to explicit IDs, resumes and force takeovers. Declining or canceling leaves claims, Jira and Git unchanged. Use `/dt-status <id>` to read the full ticket and its saved progress. After confirmation, the agent rechecks safety and claims the ticket atomically before Git operations. If another agent claimed it while the picker was open, starting work is refused.
+**Canceling changes nothing.** After selection, the extension displays a short summary with the ticket ID, title and outcome, then asks whether it is the ticket you want to work on. This also applies to explicit IDs, resumes and force takeovers. Declining or canceling leaves claims, Jira and Git unchanged. Use `/dt-status <id>` to read the full ticket and its saved progress. After confirmation, the agent rechecks safety and claims the ticket atomically before Git operations. All current policy warnings are rechecked when claiming. Override consent is explicit, recorded with the claim and never inferred merely from opening the picker.
 
-- `/dt-lane <id>` skips the picker, not ticket confirmation or safety checks. Starting requires an interactive or RPC confirmation dialog; non-interactive sessions can inspect tickets with `/dt-status <id>` but cannot start a lane.
-- `/dt-lane <id> force` explicitly takes over a claim **in its saved checkout**, after you check the previous agent is gone. It does not stop that agent or cancel running commands. Dirty-tree, dependency and module-conflict checks still apply.
+- `/dt-lane <id>` skips the picker, not ticket confirmation or safety checks. Normal starts require an interactive or RPC confirmation dialog. Non-interactive starts require an explicit `/dt-lane <id> override`; otherwise use `/dt-status <id>` to inspect.
+- `/dt-lane <id> force` explicitly takes over a claim **in its saved checkout**, after you check the previous agent is gone. It does not stop that agent or cancel running commands. Without override, dirty-tree, dependency and module-conflict checks still apply.
 
-Claims in `progress.json` record the Pi session owner, checkout and acquisition time. Another session cannot resume a claim or save ticket progress/PRs with the old owner. In-progress work in another lane is context, not an invitation to join that agent.
+Claims in `progress.json` record the Pi session owner, checkout and acquisition time. Another session needs explicit force/override to take a claim; it cannot save ticket progress/PRs with the displaced owner. In-progress work in another lane is context, not an invitation to join that agent.
+
+`/dt-lane <id> override` or CLI `next --ticket ID --override` accepts every ticket-start policy warning: shared modules, unsafe pairs, dependencies, saved blockers, pending plans, owners, checkout/dirty-tree checks, Jira setup policy and completed work. The existing ticket dialog shows Start anyway, not another approval step. Overrides do not approve a plan, stop other processes, discard files or bypass invalid data/the progress lock; native Git/API errors may still need repair. A takeover fences the old owner’s progress writes. Other active ticket claims in a shared checkout are retained, not silently released. Reopened merged work retains its PR facts but cannot close until a fresh PR is recorded. `next --check-only --json` inspects warnings without claims, state writes or Git changes.
 
 Claims do not expire on a timer. A final save with `--release-claim`, or normal session shutdown, releases only that session's claims. In a monorepo checkout, explicitly selecting a different ticket can atomically release the checkout's old claim and acquire the new one when Git has no uncommitted changes and no other local Pi session is using the checkout. Process inspection fails closed if unavailable. This is local CLI detection, not a lock on arbitrary editors or remote agents. Release preserves the old ticket's branch, progress, existing artifacts and review state.
 
@@ -89,7 +88,7 @@ The session context supplies `--owner <session-ID>` for `dt.mjs next`, ticket pr
 
 For UI work in any tier, including mixed UI/backend tickets, `/dt-start` inspects supplied prototypes during the grill and settles whether their appearance and behavior are authoritative or illustrative. It saves relevant screenshots under `<feature>/references/ui/` with `references/ui/manifest.md` recording source URLs, screen/states, viewports, capture dates, reproduction steps and agreed differences. Each UI ticket embeds relative screenshot links and names its source and relevant states. `/dt-status <id>` ends the complete ticket and saved progress with only `Reference screenshots: file:///tmp/dt-ticket-<id>-images-…/`; it does not append inline images, individual image URLs or screenshot labels. The private temporary folder contains copies of all readable, supported references, numbered in reference order with duplicate files exported once. Inline and reference-style image links resolve relative to the ticket and must stay inside the feature directory (including symlink targets); no remote image is fetched. Missing or rejected images produce warning notifications without hiding the ticket. PNG, JPEG, GIF and WebP captures are supported, up to 10 MiB per image and 32 MiB per ticket. Each invocation exports validated image bytes into a fresh folder; folders remain until manually removed or cleared by the system, and project state is unchanged. Lane confirmation stays summary-only. If capture is blocked or no reference is supplied, the user must provide screenshots or explicitly waive the missing coverage; the agent cannot silently skip it.
 
-`/dt-revise` applies the same rules to added or updated UI tickets and can backfill references in existing plans without changing settled scope. Done and merged tickets stay unchanged. `/dt-lane` reads the captures before implementation, and browser verification compares the result against them; visual acceptance remains human-owned. These durable planning inputs are separate from optional verification artifacts and must be preserved. This is prompt-guided behavior, not an automatic CLI screenshot validator.
+Direct planning edits and optional `/dt-revise` apply the same rules to added or updated UI tickets and can backfill references in existing plans without changing settled scope. Done and merged tickets stay unchanged. `/dt-lane` reads the captures before implementation, and browser verification compares the result against them; visual acceptance remains human-owned. These durable planning inputs are separate from optional verification artifacts and must be preserved. This is prompt-guided behavior, not an automatic CLI screenshot validator.
 
 ### Verification records
 
@@ -97,7 +96,7 @@ Save short verification results, useful links and remaining checks in `progress.
 
 ### Approval and closure
 
-`/dt-approve plan` approves a new plan (creating and selecting the project) or a revised one. It asks for confirmation, and fails if the plan files changed while its dialog was open.
+`/dt-approve plan` approves a new plan (creating and selecting the project). It asks for confirmation, and fails if the plan files changed while its dialog was open. `/dt-revise` keeps that approval intact rather than requesting another one. Legacy pending plan gates still use their saved approval path; no existing pending gate is silently cleared.
 
 Merging a ticket's PRs is your decision; `/dt-check-merged` only records it. It checks every saved PR of each open ticket live on GitHub, reports the states in one table, and closes each ticket whose PRs are all merged. Tickets with an open, closed-unmerged or unreadable PR stay open. It needs no confirmation, and closure is not proof that staging or production checks passed.
 
@@ -105,7 +104,7 @@ Neither command merges a PR or starts implementation.
 
 ### Any time
 
-- `/dt-status [id]`: read-only board (completion, remaining tickets, blockers, plan state, **next dt-command(s) last**) or one full ticket with its saved progress. No model call or remote refresh.
+- `/dt-status [id]`: read-only board (completion, remaining tickets, blockers, plan state, **next dt-command(s) last**) or one full ticket with its saved progress. Pending reviews recommend `/dt-review <id>` before starting more work with `/dt-lane`; merged work still goes to `/dt-check-merged`. No model call or remote refresh.
 - `/dt-help`: this command flow, picker labels and ownership rules, without a model call.
 - `/dt-resume [slug]`: select/switch projects; remote refresh failures keep the local selection. It shows next commands in the transcript.
 
@@ -135,7 +134,7 @@ dt.mjs pr <slug> <ID> --body-file F       open and record the PR (draft in monor
 dt.mjs comment --body-file F              manually post a PR comment (not used by /dt-review)
 dt.mjs selftest                           test the pure logic
 ```
-`-h` and `--help` work at every command level, including `config set` and `config set checks`, without requiring a Git repository or running workflow actions. Running `dt.mjs` without arguments shows the top-level help. Run `node --test *.test.mjs` for the CLI, session-state, footer and autocomplete tests. To include the optional Pi-runtime integration test, set `PI_PACKAGE_DIR` to the installed `@earendil-works/pi-coding-agent` package directory.
+`-h` and `--help` work at every command level, including `config set` and `config set checks`, without requiring a Git repository or running workflow actions. Running `dt.mjs` without arguments shows the top-level help. Run `node --test tests/*.test.mjs` for the CLI, session-state, footer and autocomplete tests. To include the optional Pi-runtime integration test, set `PI_PACKAGE_DIR` to the installed `@earendil-works/pi-coding-agent` package directory.
 
 `--dry-run` prints the git/gh commands instead of running them, without claiming a ticket. Rules it enforces: checkout ownership, `blocked_by` done, no shared `touches`, no `unsafe_with` pair, T2 monorepo lanes only in the configured clones, T2 standalone lanes only from the main checkout; T0/T1 tickets branch `quick/<slug>` in the current checkout. Feature docs inside the repo never count as uncommitted changes.
 
@@ -170,5 +169,5 @@ Keep PRs short: a few plain change bullets under `## Description`, then `## Test
 
 ## Where to iterate first
 - Tune the brief sections and ticket format in `/dt-start` to the repo's real conventions, and set `checks` to the exact affected-targets command.
-- If revisions keep needing approval, adjust the "Approval only for big changes" rule in `/dt-revise`.
+- Agents settle uncertain choices in chat and save planning edits directly; optional `/dt-revise` audits coverage without renewing plan approval; do not recreate a G2 pending gate for ordinary revisions.
 - If you want blocking gates or a TUI board, grow `extensions/dt-resume.ts`; keep the state logic in `dt.mjs`.

@@ -76,17 +76,20 @@ Keep it short, one to two pages. Sections, in this order:
 1. **Outcome** - the problem and what changes for users, in a few lines.
 2. **Goals / non-goals** - non-goals are specific.
 3. **Decisions** - settled behavior and constraints, each in one line with its reason; not implementation choices.
-4. **Scale and risks** - the scale conclusion, required failure behavior and constraints on irreversible changes.
-5. **Verification** - observable acceptance criteria and what needs a human; for UI work, link `references/ui/manifest.md` and state the reference's authority and agreed differences.
-6. **Follow-ups** - known outcomes left out on purpose; "none" is fine.
+4. **Module map** - the shared building blocks, their concrete paths, responsibilities and module dependencies; use the exact names referenced by ticket `touches`.
+5. **Scale and risks** - the scale conclusion, required failure behavior and constraints on irreversible changes.
+6. **Verification** - observable acceptance criteria and what needs a human; for UI work, link `references/ui/manifest.md` and state the reference's authority and agreed differences.
+7. **Follow-ups** - known outcomes left out on purpose; "none" is fine.
 
-The spec answers **what and why**, not how. Do not include slices, ticket lists or IDs, module ownership, dependency tables, architecture diagrams, implementation steps or landing order in `spec.md`. Those belong only in tickets. Keep the spec independent of the ticket breakdown: splitting, reordering or changing implementation does not require a spec edit.
+The spec answers **what and why** and keeps the shared module map; tickets answer how it will be delivered. The map is the canonical definition of the feature's modules, not its execution plan. Use a compact table: `Module/touches key | Code or artifact paths | Responsibility (one sentence) | Depends on | New or existing`. Every `touches` key must resolve to a map entry using the exact name used in ticket frontmatter, with known repository or artifact paths; module aliases and non-code resources must be explicit too. Do not leave shorthand keys undefined or assume a prefix explains them. Keep interface declarations and command/schema details out of the module map; compiling interfaces belong in the skeleton code. Add a module diagram only when the user requests one.
+
+Do not include slices, ticket lists or IDs, ticket/lane ownership, ticket dependency tables, implementation steps or landing order in `spec.md`; those belong in tickets. Keep the spec independent of the ticket breakdown: splitting or reordering tickets does not change the map. Update the map when module names, paths, responsibilities or module dependencies change.
 
 ### Tickets: `tickets/NN-short-name.md`
 
 T0/T1: exactly one ticket, `00`. T2: the building blocks cut into a handful of tickets (usually 3-8). Prefer fewer, larger tickets over many small ones.
 
-Tickets answer **how** the spec will be delivered: work breakdown, module ownership, dependencies, implementation approach, risk checks and landing order. Keep each ticket's outcome and checks concrete without copying the whole spec. Record settled technical choices here; leave code-level details to the lane.
+Tickets answer **how** the spec will be delivered: work breakdown, ticket/lane ownership, ticket dependencies, implementation approach, risk checks and landing order. Their `touches` keys refer to the shared Module map in `spec.md`; do not redefine those modules locally. Keep each ticket's outcome and checks concrete without copying the whole spec. Record settled technical choices here; leave code-level details to the lane.
 
 ```
 ---
@@ -183,15 +186,15 @@ Use the normal ticket frontmatter and body sections; keep `kind: AFK` for agent-
 
 The Outcome is a supported recommendation or a demonstrated limitation, not a shipped feature. Done when requires findings, evidence, trade-offs and a recommended next step; a negative or inconclusive result is valid when it explains the remaining uncertainty. Scope excludes production implementation unless a minimal, explicitly agreed prototype is necessary; do not merge throwaway code into production. Put the findings document and any retained experiment code in `touches` so the spike can follow normal PR review and merge closure.
 
-Dependent implementation tickets list the spike in `blocked_by`. Describe their intended outcomes, but leave the unresolved approach open until findings are reviewed and `/dt-revise` updates the affected tickets. An investigation needed to design the skeleton runs before 00: give it the next free ID, leave out the dependency on 00, and make 00 depend on it. Never create a dependency cycle. Investigation that relies on the skeleton still depends on 00.
+Dependent implementation tickets list the spike in `blocked_by`. Describe their intended outcomes, but leave the unresolved approach open until findings are reviewed and the agent updates the affected editable tickets directly. An investigation needed to design the skeleton runs before 00: give it the next free ID, leave out the dependency on 00, and make 00 depend on it. Never create a dependency cycle. Investigation that relies on the skeleton still depends on 00.
 
 T0/T1 remain one ticket: bounded investigation can be included in it, but if separate spike and implementation tickets are needed, ask the user whether to start a T2 project; never change the tier yourself.
 
 T2 rules:
 - **00 is the walking skeleton** (HITL): the building blocks' public interfaces as real compiling code, fakes for anything slow or external, and one trivial path through every layer. Interfaces are reviewed in its PR, not on paper. Every later implementation ticket has `00` in `blocked_by`; prerequisite spikes are the exception described above.
-- Ticket 00 owns the shared **Building blocks** section: a table `Module | Responsibility (one sentence) | Depends on | New or existing`, then a Mermaid `flowchart LR` of the same modules (`A --> B` = A uses B; dashed = new). Few, deep modules; no interface signatures. Keep ticket dependencies and landing order in ticket frontmatter, not the spec.
+- Ticket 00 uses the shared **Module map** in `spec.md` to build the walking skeleton; do not duplicate the canonical map in tickets. Its Scope describes the compiling interfaces, fakes and first working path, not paper interface signatures. Keep ticket dependencies and landing order in ticket frontmatter, not the spec.
 - Each later ticket is a vertical slice with a demoable outcome, never a layer or "phase N of M". Roughly one module boundary, one agent context and under ~700 lines of change; split anything bigger.
-- Anything shared (schema migration, dependency bump, flag wiring) is its own ticket that lands first. Encode shared modules in `touches` and real conflicts in `unsafe_with`.
+- Anything shared (schema migration, dependency bump, flag wiring) is its own ticket that lands first. Encode shared modules in `touches` and real conflicts in `unsafe_with`. These produce ticket-start warnings; the user may explicitly override them after seeing the risks.
 - If scale matters, the ticket that creates the risk names its check under Done when.
 
 ## Propose the plan
@@ -200,11 +203,11 @@ Before proposing, check every UI ticket has its UI reference section and coverag
 
 Call `dt_propose_plan` with the slug, my chosen tier, the type (`web | device | service | cli | mixed`) and a one-line note. Then post a compact plan card:
 1. Task summary (≤3 sentences), tier, type, slug, and `Epic: <key>` when required.
-2. T2: the building-block diagram from ticket 00, rendered (with the `mermaid-render` skill when available), not as source.
+2. T2: the compact module map from `spec.md`; show a rendered module diagram only when the user requested one and the spec contains it.
 3. Tickets: a table `id | title | blocked_by | touches`, plus each ticket's outcome in one line.
 4. Up to 3 decisions you are least sure about.
 5. **Next command: `/dt-approve plan`**. Discussion is for changes, not approval.
 
-If I ask for changes, edit the files and call `dt_propose_plan` again before posting an updated card. If I change the scope itself, summarize it again and ask me to choose the tier again; a name-only change keeps my tier but needs the files moved to the new slug folder.
+Before initial plan approval, if I ask for changes, edit the files and call `dt_propose_plan` again before posting an updated card. After the feature is approved, normal work can update editable tickets and the spec directly: settle unresolved choices in chat and keep the original approval, without another proposal or `/dt-approve plan`. `/dt-revise` is optional for a spec/ticket coverage audit or a focused requested edit. If I change the scope itself, summarize it again and ask me to choose the tier again; a name-only change keeps my tier but needs the files moved to the new slug folder.
 
 Only `/dt-approve plan` creates the project, records approval and selects it. Never run `dt.mjs gate` yourself. In standalone modality, tell me that T2 ticket files must be committed and pushed to the main branch before the first `/dt-lane`. After approval the next command is `/dt-lane`.

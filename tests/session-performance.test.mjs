@@ -5,8 +5,8 @@ import { createRequire } from "node:module";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBranchReader, WORKFLOW } from "./extensions/dt-session/branch.mjs";
-import { createProjectFooter } from "./extensions/dt-session/footer.mjs";
+import { createBranchReader, WORKFLOW } from "../extensions/dt-session/branch.mjs";
+import { createProjectFooter } from "../extensions/dt-session/footer.mjs";
 
 function history() {
   const entries = new Map();
@@ -114,7 +114,7 @@ test("Pi runtime: idle sessions stay dormant and active input reuses state witho
   t.after(async () => { if (previous === undefined) delete process.env.DT_DIR; else process.env.DT_DIR = previous; await rm(dir, { recursive: true, force: true }); });
   // Omit command-only modules: loading the extension must not need them.
   for (const file of ["index.ts", "runtime.ts", "state.mjs", "gates.mjs", "approval-guard.mjs", "footer.mjs", "branch.mjs", "ticket-screenshots.mjs"]) {
-    await writeFile(join(dir, file), await readFile(new URL(`./extensions/dt-session/${file}`, import.meta.url)));
+    await writeFile(join(dir, file), await readFile(new URL(`../extensions/dt-session/${file}`, import.meta.url)));
   }
   const { createJiti } = createRequire(join(pkg, "package.json"))("jiti");
   const jiti = createJiti(join(pkg, "package.json"), { moduleCache: false, alias: {

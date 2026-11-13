@@ -10,8 +10,7 @@ flowchart LR
   M --> C{"Ticket closure<br/>/dt-check-merged"}
   C -->|"ready tickets left"| L
   C -->|"all closed"| Done["complete"]
-  V["/dt-revise [change]<br/>edit brief + unstarted tickets"] -->|"small change"| L
-  V -->|"plan shape changed"| P
+  V["optional /dt-revise [change]<br/>coverage audit or focused edit"] -->|"decisions settled; edits saved"| L
   subgraph memory["the only memory between sessions"]
     O["feature folder<br/>feature.json · spec.md · tickets/ · progress.json"]
   end
@@ -29,30 +28,30 @@ Everything after the grill reads the feature folder, so any step can continue in
 
 ## The plan
 
-The plan reflects the grill, not new design. T2 gets a one-to-two page brief (`spec.md`: outcome, goals and non-goals, behavior and constraints with reasons, scale and risks, acceptance criteria, follow-ups) and a handful of outcome-level tickets. The spec says what and why; tickets say how. Slices, module ownership, dependencies, implementation approach and landing order live only in tickets; ticket 00 holds the shared building-block table and diagram. T0/T1 get one ticket and no brief. Tickets carry frontmatter for dependencies and parallel safety, then Outcome, Scope, Example, Out of scope and Done when. No contracts on paper, change tables or Gherkin: T2 ticket 00 writes the interfaces as code and they are reviewed in its PR; each lane writes scenarios from its ticket's outcome.
+The plan reflects the grill, not new design. T2 gets a one-to-two page brief (`spec.md`: outcome, goals and non-goals, behavior and constraints with reasons, the module map, scale and risks, acceptance criteria, follow-ups) and a handful of outcome-level tickets. The spec says what and why; the shared module map lives in `spec.md`, defining exact `touches` keys, concrete code/artifact paths, responsibilities and module dependencies. Tickets say how: slices, ticket/lane ownership, ticket dependencies, implementation approach and landing order. Ticket 00 builds the mapped interfaces as code rather than duplicating the map. T0/T1 get one ticket and no brief. Tickets carry frontmatter for dependencies and parallel safety, then Outcome, Scope, Example, Out of scope and Done when. No contracts on paper, change tables or Gherkin: T2 ticket 00 writes the interfaces as code and they are reviewed in its PR; each lane writes scenarios from its ticket's outcome.
 
 ## Approvals
 
 | Approval | Internal ID | User command |
 |---|---|---|
-| Plan | G0 (new project) / G2 (revised plan) | `/dt-approve plan` |
+| Initial plan | G0 (new project); G2 stores its usable approval | `/dt-approve plan` |
 | Ticket closure | G3 | `/dt-check-merged` checks every open ticket's PRs live on GitHub and closes each ticket whose PRs are all merged. |
 
-Only `/dt-approve plan` records plan approval, and only `/dt-check-merged` closes tickets after you merge; discussion revises proposals. No approval merges a PR or starts implementation. Ticket closure does not claim staging or production acceptance.
+Only `/dt-approve plan` approves an initial plan, and only `/dt-check-merged` closes tickets after you merge. Later `/dt-revise` edits keep that approval intact after any unsettled decisions are answered in chat; they do not require a second formal approval. Legacy pending gates still follow their saved confirmation path and are not silently cleared. No approval merges a PR or starts implementation. Ticket closure does not claim staging or production acceptance.
 
 Code review is not a gate: `/dt-review` reads code, suggests actionable improvements in chat and offers to fix user-selected items. It never posts PR reviews or comments. Re-review after fixes is optional.
 
 ## Revising the plan
 
-`/dt-revise <change>` handles a deliberate change and edits only affected files. Implementation-only revisions leave the spec untouched. `/dt-revise` alone compares landed behavior with the spec and implementation with tickets, then asks for confirmation before updating the appropriate files. Todo tickets are edited freely; in-flight tickets only get clarified wording unless their scope must change (then a review handover is recorded); done and merged tickets never change, and extra work becomes a new ticket.
+Agents maintain the spec and editable tickets directly during normal work. No `/dt-revise` invocation is required. Optional `/dt-revise <change>` handles a deliberate change and edits only affected files. Implementation-only revisions that do not affect the module map leave the spec untouched. Update or backfill module names, paths, responsibilities and module dependencies in the spec without editing completed tickets. `/dt-revise` without arguments audits spec/ticket coverage in both directions: each requirement needs coverage or an explicit exclusion, and each ticket outcome needs a settled purpose in the spec. It checks contradictions, module definitions and dependencies, fixes clear documentation mismatches and asks only about unresolved decisions. Code is consulted for factual ambiguity or an explicitly requested code-alignment audit, not by default. Todo tickets are edited freely; in-flight tickets only get clarified wording unless their scope must change (then a review handover is recorded); done and merged tickets never change, and extra work becomes a new ticket.
 
-Approval is needed only when the plan's shape changes: a building block added, removed or moved, in-flight work that must change, or a ready ticket's dependencies. Then `/dt-revise` records the plan as pending and new starts wait for `/dt-approve plan`; work in flight continues.
+Revisions do not create a new approval gate, including changes to building blocks, scope or ready-ticket dependencies. Ask about genuinely unsettled choices in chat and wait for the answer; explicit requested changes need no duplicate confirmation. Save the edits and next step under the original plan approval. In-flight work continues with its required scope-change handovers, and lane/checkout conflicts are shown as warnings and can be explicitly overridden at ticket start.
 
 ## Investigation before implementation
 
 Create a bounded spike when feasibility, an implementation approach, external behavior or a performance risk needs an experiment. Use normal tickets and AFK/HITL ownership, with an Investigation section naming the question, options, experiment, time or effort limit and findings document path. The deliverable is reviewed evidence and a recommendation, not production implementation; negative or inconclusive findings are valid when the acceptance checks are met. Findings follow normal PR review and merge closure.
 
-Dependent implementation tickets use `blocked_by` and leave the unresolved approach open. A prerequisite spike may precede ticket 00 without depending on it; 00 then depends on the spike. Other spikes depend on 00 when they need the skeleton. After review, `/dt-revise` settles the approach in affected tickets; the spec changes only when requirements change. T0/T1 stay one ticket; ask the user before moving to a T2 project for separate spike and implementation tickets.
+Dependent implementation tickets use `blocked_by` and leave the unresolved approach open. A prerequisite spike may precede ticket 00 without depending on it; 00 then depends on the spike. Other spikes depend on 00 when they need the skeleton. After review, the agent settles the approach in affected editable tickets directly, asking about unresolved choices; the spec changes only when requirements or the shared module map change. T0/T1 stay one ticket; ask the user before moving to a T2 project for separate spike and implementation tickets.
 
 ## Two modalities
 
@@ -63,6 +62,8 @@ Dependent implementation tickets use `blocked_by` and leave the unresolved appro
 | feature docs | `~/.pi/agent/dt/features/<org>/<repo>/<slug>/`, shared by both clones, auto-committed to a local git repo | `docs/features/<slug>/` in the main checkout; commit T2 tickets before starting lanes |
 | work items | tickets only (Jira for T2 in the two CSS repos) | tickets + feature issue + issue per ticket (T2) |
 | GitHub | draft PR per ticket | ready PR per ticket |
+
+Ticket starts report policy conflicts as warnings. Selecting Start anyway, `/dt-lane <id> override` or CLI `next --override` explicitly bypasses dependencies, unsafe/shared-module constraints, saved blockers, plan gates, ownership/checkout rules and completed-work guards. Override is not plan approval and does not stop agents or discard files; invalid data, the progress lock and native Git/API failures still need valid inputs or repair. Takeover fences the displaced owner, and other active claims are retained when sharing a checkout. Reopened work requires a fresh PR before merge-based closure.
 
 Ticket progress stores no historical lane assignment. `claim.checkout` protects active work; an optional standalone `worktree` path persists for resume and cleanup.
 
@@ -80,8 +81,8 @@ Use the format in [AGENTS.md](AGENTS.md):
 ```
 <features dir>/<slug>/
   feature.json      identity: tier, type, modality (and epic for T2 in the two CSS repos)
-  spec.md           T2: what and why; independent of slices and implementation
-  tickets/NN-*.md   how: work breakdown, ownership, dependencies and delivery checks
+  spec.md           T2: what and why + module map; independent of ticket breakdown
+  tickets/NN-*.md   how: work breakdown, ticket/lane ownership, dependencies and delivery checks
   progress.json     current state, written only by dt.mjs
 ```
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as logic from "./dt.mjs";
-import { nextCommands } from "./extensions/dt-session/gates.mjs";
+import * as logic from "../dt.mjs";
+import { nextCommands } from "../extensions/dt-session/gates.mjs";
 
 const ticket = (id, touches = [id]) => ({ id, title: id, touches, blocked_by: [], unsafe_with: [] });
 test("when no spare ticket fits, suggest the claim-aware lane picker", () => {

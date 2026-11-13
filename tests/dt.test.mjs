@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const script = fileURLToPath(new URL("./dt.mjs", import.meta.url));
+const script = fileURLToPath(new URL("../dt.mjs", import.meta.url));
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "dt-cli-test-"));
 process.on("exit", () => fs.rmSync(sandbox, { recursive: true, force: true }));
 const run = (args) => spawnSync(process.execPath, [script, ...args], {

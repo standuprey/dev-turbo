@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as logic from "./dt.mjs";
-import { nextCommands } from "./extensions/dt-session/gates.mjs";
-import { renderStatus } from "./extensions/dt-status/status.mjs";
+import * as logic from "../dt.mjs";
+import { nextCommands } from "../extensions/dt-session/gates.mjs";
+import { renderStatus } from "../extensions/dt-status/status.mjs";
 
 const project = { slug: "demo", tier: "T2", type: "service" };
 function view(states, extra = {}) {
@@ -19,6 +19,45 @@ test("full lanes route to the picker without choosing another session's ticket",
   assert.deepEqual(nextCommands(v, logic), ["/dt-lane"]);
   assert.equal(logic.suggestNext({ slug: project.slug, ...v.snapshot }), "/dt-lane demo");
   assert.match(renderStatus(project, v.snapshot, logic), /## Next commands\n- `\/dt-lane`$/);
+});
+
+test("review work outranks ready tickets and stale generic lane handovers", () => {
+  for (const next of ["", "/dt-lane", "/dt-lane demo", "/dt-lane demo next", "/dt-lane next"]) {
+    const v = view({ "42": { status: "review", prs: [{ number: 1, state: "open" }], acceptance: { state: "changes", note: "old scope handover" } }, "53": { status: "todo" } }, { next });
+    const before = JSON.stringify(v.snapshot.prog);
+    assert.deepEqual(nextCommands(v, logic), ["/dt-review 42"]);
+    assert.equal(logic.suggestNext({ slug: project.slug, ...v.snapshot }), "/dt-review demo 42");
+    assert.match(renderStatus(project, v.snapshot, logic), /## Next commands\n- `\/dt-review 42`$/);
+    assert.equal(JSON.stringify(v.snapshot.prog), before);
+  }
+});
+
+test("reviews are listed before starting new work, but merge closure and explicit review selection keep priority", () => {
+  const v = view({ "42": { status: "review", prs: [{ state: "open" }] }, "44": { status: "review", prs: [{ state: "open" }] }, "53": { status: "todo" } });
+  assert.deepEqual(nextCommands(v, logic), ["/dt-review 42", "/dt-review 44"]);
+  v.snapshot.prog.next = "/dt-review demo 44";
+  assert.deepEqual(nextCommands(v, logic), ["/dt-review 44"]);
+  v.snapshot.prog.tickets["42"].prs[0].state = "merged";
+  v.snapshot.st = logic.deriveStatuses(v.snapshot.tickets, v.snapshot.prog);
+  assert.deepEqual(nextCommands(v, logic), ["/dt-check-merged"]);
+});
+
+test("CLI snapshots ignore stale generic lane steps when review is due without rewriting progress", async (t) => {
+  const base = await mkdtemp(join(tmpdir(), "dt-next-review-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const dir = join(base, project.slug);
+  await mkdir(join(dir, "tickets"), { recursive: true });
+  await writeFile(join(dir, "feature.json"), JSON.stringify(project));
+  for (const id of ["42", "53"]) await writeFile(join(dir, "tickets", `${id}.md`), `---\nid: "${id}"\ntitle: Ticket ${id}\nblocked_by: []\ntouches: [module${id}]\nunsafe_with: []\n---\n`);
+  for (const next of ["", "/dt-lane", "/dt-lane demo", "/dt-lane demo next", "/dt-lane next"]) {
+    const v = view({ "42": { status: "review", prs: [{ state: "open" }] }, "53": { status: "todo" } }, { next });
+    const progress = JSON.stringify(v.snapshot.prog);
+    await writeFile(join(dir, "progress.json"), progress);
+    const snapshot = logic.readFeatureStatus({ featuresBase: base }, project.slug);
+    assert.equal(snapshot.next, "/dt-review demo 42");
+    assert.equal(snapshot.suggested, "/dt-review demo 42");
+    assert.equal(await readFile(join(dir, "progress.json"), "utf8"), progress);
+  }
 });
 
 test("completion has no next command and suggests no review", () => {
@@ -56,7 +95,7 @@ test("stale saved status commands are ignored without rewriting progress", async
 
 test("workflow prompts never send completed work back to status", async () => {
   for (const name of ["lane", "review", "revise"]) {
-    const prompt = await readFile(new URL(`./prompts/dt-${name}.md`, import.meta.url), "utf8");
+    const prompt = await readFile(new URL(`../prompts/dt-${name}.md`, import.meta.url), "utf8");
     assert.doesNotMatch(prompt, /\/dt-status\b(?! <id>)/);
   }
 });

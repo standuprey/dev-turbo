@@ -4,10 +4,10 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import * as logic from "./dt.mjs";
-import { laneOptions } from "./extensions/dt-session/lane-picker.mjs";
+import * as logic from "../dt.mjs";
+import { laneOptions } from "../extensions/dt-session/lane-picker.mjs";
 
-const script = path.resolve(import.meta.dirname, "dt.mjs");
+const script = path.resolve(import.meta.dirname, "../dt.mjs");
 function fixture(t, name = "monorepo") {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dt-jira-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -44,7 +44,7 @@ function fixture(t, name = "monorepo") {
 }
 
 test("new monorepo Jira issues require verified assignment, active sprint and In Progress before branching", () => {
-  const prompt = fs.readFileSync(new URL("./prompts/dt-lane.md", import.meta.url), "utf8");
+  const prompt = fs.readFileSync(new URL("../prompts/dt-lane.md", import.meta.url), "utf8");
   const setup = prompt.split("## Jira setup (T2 in the two CSS repos only)")[1].split("## Saving state")[0];
   const updates = setup.split("5. For newly created Jira tickets in **monorepo modality**")[1].split("6. Run the normal `next` command")[0];
   assert.ok(setup.indexOf("--jira-key <KEY>") < setup.indexOf("5. For newly created"));
@@ -71,7 +71,7 @@ test("new monorepo Jira issues require verified assignment, active sprint and In
   assert.match(updates, /Do not reassign, move to a newer sprint or reset the status.*when resuming/);
   assert.match(updates, /Standalone modality retains its existing Jira behavior/);
   for (const file of ["AGENTS.md", "README.md"]) {
-    const doc = fs.readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+    const doc = fs.readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     assert.match(doc, /monorepo modality, newly created Jira tickets.*assigned to the user.*current active sprint.*In Progress/i);
     assert.match(doc, /standalone behavior is unchanged/i);
   }
@@ -120,8 +120,8 @@ for (const name of ["monorepo", "ottercam"]) test(`${name}: only T2 requires an 
 });
 
 test("grill and lane instructions require epics only for T2 and keep T0/T1 work in one ticket", () => {
-  const start = fs.readFileSync(new URL("./prompts/dt-start.md", import.meta.url), "utf8");
-  const lane = fs.readFileSync(new URL("./prompts/dt-lane.md", import.meta.url), "utf8");
+  const start = fs.readFileSync(new URL("../prompts/dt-start.md", import.meta.url), "utf8");
+  const lane = fs.readFileSync(new URL("../prompts/dt-lane.md", import.meta.url), "utf8");
   assert.match(start, /Wait for the user to choose the tier before asking for an epic/);
   assert.match(start, /T0\/T1 assume all work fits inside one ticket/);
   assert.match(start, /refuses a missing one only for T2/);

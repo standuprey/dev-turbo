@@ -6,7 +6,14 @@
         "/Users/stanislas.duprey/code/monorepo",
         "/Users/stanislas.duprey/code/monorepo-2"
       ],
-      "checks": ""
+      "checks": "css format --changeset && bazel build //product/web/beam/modules/applications/verify-device:typecheck && bazel test //product/web/beam/modules/applications/verify-device:jest_test //product/otter-verify/service/..."
+    },
+    "csscompany-enterprise/ottercam": {
+      "modality": "monorepo",
+      "lanes": [
+        "/Users/stanislas.duprey/code/ottercam"
+      ],
+      "checks": "poetry run pytest"
     }
   },
   "defaults": {

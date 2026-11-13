@@ -57,7 +57,7 @@ export default async function (pi: ExtensionAPI) {
 		if (lock) { try { await rmdir(lock); } catch { ctx.ui.notify(`Approval lock could not be removed: ${lock}`, "warning"); } }
 	};
 	pi.registerCommand("dt-approve", {
-		description: "Approve a new or revised plan",
+		description: "Approve a new plan or a legacy pending revision",
 		getArgumentCompletions: async (prefix) => {
 			if (!currentCtx) return null;
 			try { return approvalCompletions(await view(currentCtx), prefix); } catch { return null; }
@@ -127,7 +127,7 @@ export default async function (pi: ExtensionAPI) {
 				const fresh = await view(ctx);
 				const candidates = closable(fresh.snapshot);
 				if (!candidates.length) {
-					pi.sendMessage({ customType: "dt-approve", display: true, details: { gate: "check-merged" }, content: `## Merge check\n\nNo open tickets have saved PRs.\n\n## Next commands\n${nextCommandText(nextCommands(fresh, fresh.logic))}` });
+					pi.sendMessage({ customType: "dt-approve", display: true, details: { gate: "check-merged" }, content: `## Merge check\n\n${fresh.snapshot.tickets.some((t: { id: string }) => fresh.snapshot.prog.tickets[t.id]?.reopened) ? "Reopened tickets need a fresh PR before merge-based closure; previously merged PRs are retained, not reused as new acceptance." : "No open tickets have saved PRs."}\n\n## Next commands\n${nextCommandText(nextCommands(fresh, fresh.logic))}` });
 					return;
 				}
 				const rows: string[] = [];

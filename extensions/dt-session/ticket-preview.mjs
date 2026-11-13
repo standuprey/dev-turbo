@@ -30,16 +30,22 @@ export function summarizeTicket(ticket) {
   return [`${ticket.id} · ${ticket.title}`, summary, `Full ticket: /dt-status ${ticket.id}`].filter(Boolean).join("\n\n");
 }
 
-export async function confirmTicket({ pi, ctx, project, snapshot, id, force = false }) {
+export async function confirmTicket({ pi, ctx, project, snapshot, id, force = false, override = false, warnings = [] }) {
   const ticket = await readTicketPreview(snapshot, id);
   const summary = summarizeTicket(ticket);
   displayTicket(pi, project, { ...ticket, content: summary });
+  const warningText = warnings.length ? `Start warnings:\n${warnings.map((w) => `- ${w}`).join("\n")}\n\n` : "";
+  const overrideText = (override || warnings.length) ? "Starting anyway overrides ticket-start checks, may take over claims or share a checkout, and does not stop other agents. Local changes are not discarded; overlaps and shared checkouts can race or mix work.\n" : "";
   if (!ctx.hasUI) {
-    ctx.ui.notify("Ticket summary displayed; starting requires confirmation in an interactive or RPC session. No claim or work has started.", "warning");
+    if (override) {
+      ctx.ui.notify(`${warningText}${overrideText}Explicit override requested.`, "warning");
+      return true;
+    }
+    ctx.ui.notify("Ticket summary displayed; starting requires confirmation in an interactive or RPC session. Use an explicit /dt-lane <id> override to accept start warnings without a dialog. No claim or work has started.", "warning");
     return false;
   }
-  const confirmed = await ctx.ui.confirm(`Start/resume ticket ${ticket.id} · ${project.slug}?`,
-    `${summary}\n\n${force ? "This will request a force takeover; it does not stop the previous agent.\n" : ""}Is this the ticket you want to work on?`);
+  const confirmed = await ctx.ui.confirm(`${warnings.length || override ? "Start anyway" : "Start/resume"} ticket ${ticket.id} · ${project.slug}?`,
+    `${summary}\n\n${warningText}${overrideText}${force ? "This will request a force takeover; it does not stop the previous agent.\n" : ""}${warnings.length || override ? "Start anyway and accept these warnings?" : "Is this the ticket you want to work on?"}`);
   if (!confirmed) return false;
   if (await readFile(ticket.file, "utf8") !== ticket.content) throw new Error("Ticket changed during confirmation. Run /dt-lane again to review it.");
   return true;

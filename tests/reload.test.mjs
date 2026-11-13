@@ -13,7 +13,7 @@ test("Pi /reload gets updated helper dependencies despite native ESM caching", {
 	const dependency = join(dir, "dependency.mjs");
 	await writeFile(dependency, 'export const value = "before";');
 	await writeFile(join(dir, "helper.mjs"), 'import { value } from "./dependency.mjs"; export { value };');
-	const runtime = new URL("./extensions/dt-session/runtime.ts", import.meta.url).href;
+	const runtime = new URL("../extensions/dt-session/runtime.ts", import.meta.url).href;
 	await writeFile(join(dir, "index.ts"), `import { createModuleLoader } from ${JSON.stringify(runtime)}; export default async function () { const load = createModuleLoader(import.meta.url); const { value } = await load("./helper.mjs"); return value; }`);
 	const { createJiti } = createRequire(join(pkg, "package.json"))("jiti");
 	const options = { moduleCache: false, alias: { "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js") } };

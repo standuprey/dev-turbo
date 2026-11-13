@@ -337,11 +337,31 @@ export function deriveStatuses(tickets, prog) {
     const e = prog.tickets[t.id];
     const status = STATUSES.includes(e?.status) ? e.status : "todo";
     const prs = e?.prs || [];
-    const note = status !== "done" && prs.length && prs.every((x) => x.state === "merged") ? "PRs merged: run /dt-check-merged" : "";
+    const note = status !== "done" && !e?.reopened && prs.length && prs.every((x) => x.state === "merged") ? "PRs merged: run /dt-check-merged" : "";
     st[t.id] = { status, note, blocked: false };
   }
   for (const t of tickets) st[t.id].blocked = st[t.id].status === "todo" && !t.blocked_by.every((b) => st[b]?.status === "done");
   return st;
+}
+
+export function ticketStartWarnings(tickets, prog, id, { resume = false } = {}) {
+  const t = findTicket(tickets, id), st = deriveStatuses(tickets, prog), saved = prog.tickets[t.id];
+  const warnings = [];
+  if (st[t.id].status === "done") warnings.push(`ticket ${t.id} is done; starting again reopens it`);
+  if (!saved?.reopened && saved?.prs?.length && saved.prs.every((pr) => pr.state === "merged")) warnings.push(`ticket ${t.id} PRs are merged: use /dt-check-merged rather than treating old PRs as new work`);
+  if (!resume) {
+    if (prog.gates.G2?.state !== "approved") warnings.push("plan approval required (/dt-approve plan); overriding does not approve it");
+    for (const blocker of [...(prog.blockers || []), ...(saved?.blockers || [])]) warnings.push(`saved blocker: ${blocker}`);
+    const blocked = t.blocked_by.filter((b) => st[b]?.status !== "done");
+    if (blocked.length) warnings.push(`${t.id}: blocked by ${blocked.join(", ")}`);
+    const peers = tickets.filter((p) => p.id !== t.id && ["in_progress", "review"].includes(st[p.id].status));
+    for (const peer of peers) {
+      const shared = t.touches.filter((m) => peer.touches.includes(m));
+      if (shared.length) warnings.push(`${t.id}: touches ${shared.join(", ")}, already in flight in ticket ${peer.id}`);
+      if (t.unsafe_with.includes(peer.id) || peer.unsafe_with.includes(t.id)) warnings.push(`${t.id}: unsafe to run with ${peer.id}`);
+    }
+  }
+  return warnings;
 }
 
 export function pickReady(tickets, st, wanted) {
@@ -415,9 +435,9 @@ export function suggestNext({ slug, prog, tickets, st }) {
   if (g !== "approved" || !tickets.length) return `/dt-revise ${slug}`;
   const merged = tickets.find((t) => st[t.id].note);
   if (merged) return "/dt-check-merged";
-  try { pickReady(tickets, st); return `/dt-lane ${slug}`; } catch { /* no spare runnable work */ }
   const review = tickets.find((t) => st[t.id].status === "review");
   if (review) return `/dt-review ${slug} ${review.id}`;
+  try { pickReady(tickets, st); return `/dt-lane ${slug}`; } catch { /* no spare runnable work */ }
   const allDone = tickets.length && tickets.every((t) => st[t.id].status === "done");
   return allDone ? "feature complete" : `/dt-lane ${slug}`;
 }
@@ -540,7 +560,10 @@ function nextOf(slug, d) {
     const n = d.prog.tickets[t.id]?.next;
     return n && !statusOnly(n) && !advisoryDrift(n) && (n.startsWith("/") ? n : `${t.id}: ${n}`);
   }).find(Boolean);
-  return { next: (!statusOnly(d.prog.next) && !advisoryDrift(d.prog.next) && d.prog.next) || ticketNext || suggested, suggested };
+  const saved = (!statusOnly(d.prog.next) && !advisoryDrift(d.prog.next) && d.prog.next) || "";
+  const genericLane = new RegExp(`^/dt-lane(?: ${esc(slug)})?(?: next)?$`);
+  const reviewDue = suggested.startsWith(`/dt-review ${slug} `) && (!saved || genericLane.test(saved.trim()));
+  return { next: reviewDue ? suggested : saved || ticketNext || suggested, suggested };
 }
 
 // Read-only snapshot for the /dt-status extension. No observers, writers or lane actions.
@@ -685,6 +708,7 @@ function cmdProgress(ctx, slug) {
         if (worktree) e.worktree = worktree;
         else delete e.worktree;
       }
+      if (e.reopened && prs.some((pr) => !e.prs.some((old) => old.number === pr.number))) delete e.reopened;
       for (const x of prs) upsert(e.prs, x, "number");
       for (const ref of opts("--remove-pr")) e.prs = e.prs.filter((x) => x.number !== parsePrRef(ref).number);
       if (e.prs.length > MAX_ITEMS || e.issues.length > MAX_ITEMS) fail(`keep at most ${MAX_ITEMS} PRs and issues per ticket`);
@@ -736,65 +760,94 @@ function assertClaim(saved, owner) {
 function cmdNext(ctx, slug) {
   mustFeature(ctx, slug);
   const wanted = opt("--ticket"), owner = opt("--owner");
+  const override = flag("--override"), checking = flag("--check-only"), force = flag("--force");
   if (!owner && !DRY) fail("next needs --owner <session ID>; /dt-lane supplies it");
-  if (flag("--force") && !wanted) fail("--force needs an explicit --ticket ID");
+  if ((override || checking || force) && !wanted) fail("--override, --check-only and --force need an explicit --ticket ID");
+  const warnings = new Set();
+  const enforce = (condition, message) => {
+    if (!condition) return;
+    if (!override && !checking) fail(message + "; use an explicit --override to start anyway");
+    warnings.add(message);
+  };
   const cur = ctx.branch.match(new RegExp(`^ticket/${esc(slug)}-(\\d+)$`));
   const lane = ctx.modality === "monorepo" && ctx.laneIndex >= 0 ? `lane ${ctx.laneIndex + 1}` : "";
   const d = collect(ctx, slug, { gh: false });
-  if (!d.tickets.length) fail(`no tickets for ${slug} (run /dt-revise first)`);
-  // T0/T1 is one ticket built in the current checkout, without a worktree or Jira ticket.
+  if (!d.tickets.length) fail(`no tickets for ${slug}`);
   const quick = (d.feature.tier || "T2") !== "T2";
   const jira = requiresJira(ctx.key) && !quick;
   const current = Object.entries(d.prog.tickets).find(([, t]) => t.branch && t.branch === ctx.branch)?.[0] || (cur && pad(cur[1]));
   const switching = current && d.st[current]?.status !== "done" && wanted && pad(wanted) !== current;
-  if (switching && ctx.modality !== "monorepo") fail(`this checkout is on ticket ${current}'s branch; finish it or use another lane`);
+  enforce(switching && ctx.modality !== "monorepo", `this checkout is on ticket ${current}'s branch; finish it or use another lane`);
   const savedWanted = wanted && d.prog.tickets[pad(wanted)];
-  const resume = !switching && current && d.st[current]?.status !== "done" ? current : savedWanted?.branch && ["in_progress", "review"].includes(d.st[pad(wanted)]?.status) ? pad(wanted) : null;
-  if (ctx.modality === "monorepo" && ctx.laneIndex < 0 && !quick) fail(`run this inside one of the configured lanes:\n  ${ctx.lanes.join("\n  ")}`);
-  if (ctx.modality === "standalone" && ctx.isWorktree && !resume) fail("run this from the main checkout, not from a lane worktree");
-  if ((!resume || switching || flag("--force")) && dirty(ctx)) fail("working tree is not clean");
-  let t, previous, branch, where;
+  const resume = !switching && current && d.st[current]?.status !== "done" ? current
+    : savedWanted?.branch && (["todo", "in_progress", "review"].includes(d.st[pad(wanted)]?.status) || override) ? pad(wanted) : null;
+  enforce(ctx.modality === "monorepo" && ctx.laneIndex < 0 && !quick, `run this inside one of the configured lanes: ${ctx.lanes.join(", ")}`);
+  enforce(ctx.modality === "standalone" && ctx.isWorktree && !resume, "run this from the main checkout, not from a lane worktree");
+  enforce((!resume || switching || force || override) && dirty(ctx), "working tree is not clean");
+  let t, previous, branch, where, here;
   const released = [];
-  // Pick and reserve under the same lock, BEFORE any Git side effects.
-  const reserved = updateProgress(ctx, slug, (prog) => {
+  const reserve = (prog) => {
+    legacyQuickPlan(d.feature, prog);
     const st = deriveStatuses(d.tickets, prog);
-    const pending = wanted && prog.tickets[pad(wanted)];
-    t = resume ? findTicket(d.tickets, resume) : pending?.status === "in_progress" && !pending.branch ? findTicket(d.tickets, wanted) : pickReady(d.tickets, st, wanted);
+    t = wanted ? findTicket(d.tickets, wanted) : resume ? findTicket(d.tickets, resume) : pickReady(d.tickets, st);
     const e = ticketOf(prog, t.id);
+    for (const message of ticketStartWarnings(d.tickets, prog, t.id, { resume: Boolean(resume) && ["in_progress", "review"].includes(e.status) })) enforce(true, message);
+    if (!resume && e.status === "review") enforce(true, `ticket ${t.id} is in review`);
+    if ((checking || override) && e.status === "review") warnings.add(`ticket ${t.id} is in review; continuing code work may invalidate that review`);
     const real = (p) => fs.existsSync(p) ? fs.realpathSync(p) : path.resolve(p);
     const occupied = Object.entries(prog.tickets).filter(([id, saved]) => id !== t.id && saved.claim?.checkout && real(saved.claim.checkout) === real(ctx.root));
     if (occupied.length || switching) {
-      if (!wanted || ctx.modality !== "monorepo") fail(`this checkout is claimed for ticket ${occupied[0]?.[0] || current}; finish it or use another lane`);
-      if (dirty(ctx)) fail("working tree is not clean");
-      let peers;
+      enforce(!wanted || ctx.modality !== "monorepo", `this checkout is claimed for ticket ${occupied[0]?.[0] || current}; finish it or use another lane`);
+      enforce(dirty(ctx), "working tree is not clean");
+      let peers = [];
       try { peers = otherCheckoutSessions(ctx.root); }
-      catch (error) { fail(`cannot verify no active session for this checkout: ${error.message}`); }
-      if (peers.length) fail(`this checkout has another active session (PID ${peers.join(", ")}); stop it before switching tickets`);
-      // Keep status, branch, evidence and handover intact; only move checkout ownership.
-      for (const [id, saved] of occupied) {
+      catch (error) { enforce(true, `cannot verify no active session for this checkout: ${error.message}`); }
+      enforce(peers.length, `this checkout has another active session (PID ${peers.join(", ")}); stop it before switching tickets`);
+      if (override && occupied.length) warnings.add(`this checkout also has ticket claims ${occupied.map(([id]) => id).join(", ")}; those agents are not stopped`);
+      // An override shares the checkout rather than unfencing another active ticket.
+      if (!override) for (const [id, saved] of occupied) {
         released.push([id, saved.claim]);
         saved.claim = null;
       }
     }
     previous = { ...e };
-    if (e.prs?.length && e.prs.every((pr) => pr.state === "merged")) fail(`ticket ${t.id} PRs are merged: use /dt-check-merged, not /dt-lane`);
     const checkout = e.claim?.checkout || (ctx.modality === "standalone" ? e.worktree : "");
-    if (checkout && (fs.existsSync(checkout) ? fs.realpathSync(checkout) : path.resolve(checkout)) !== fs.realpathSync(ctx.root)) fail(`ticket ${t.id} belongs to checkout ${checkout}; open pi there, or use /dt-lane here`);
-    if (!flag("--force")) assertClaim(e, owner);
-    // Legacy branch-only state still has to pass the dependency and conflict checks.
-    if (e.status === "todo" || (!resume && e.status === "in_progress" && !e.branch)) pickReady(d.tickets, { ...st, [t.id]: { ...st[t.id], status: "todo" } }, t.id);
+    enforce(checkout && real(checkout) !== real(ctx.root), `ticket ${t.id} belongs to checkout ${checkout}; open pi there`);
+    if (!force) enforce(e.claim && e.claim.owner !== owner, `ticket claimed by ${e.claim?.owner} in ${e.claim?.checkout}; takeover does not stop the previous agent`);
     if (jira) {
-      const epic = !flag("--claim-only") || e.jira ? requireEpic(ctx, slug) : null;
-      if (!flag("--claim-only") && !e.jira && !e.branch) fail("claim with next --claim-only, create/reuse a Jira ticket under the epic, then save --jira-key and --jira-description-file before branching");
-      if (e.jira && e.jira.epic !== epic) fail("saved Jira ticket belongs to another epic");
+      let epic = null;
+      if (!flag("--claim-only") || e.jira) {
+        try { epic = requireEpic(ctx, slug); }
+        catch (error) { enforce(true, error.message); }
+      }
+      enforce(!flag("--claim-only") && !e.jira && !e.branch, "claim with next --claim-only, create/reuse a Jira ticket under the epic, then save --jira-key and --jira-description-file before branching");
+      enforce(e.jira && e.jira.epic !== epic, "saved Jira ticket belongs to another epic");
     }
     branch = e.branch || (e.jira ? jiraBranch(e.jira.key, e.jira.title) : flag("--claim-only") ? "" : quick ? `quick/${slug}` : `ticket/${slug}-${t.id}`);
-    where = ctx.modality === "standalone" && !quick ? e.worktree || (flag("--claim-only") || resume ? ctx.root : path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`)) : ctx.root;
-    if (ctx.modality === "standalone" && !quick && (ctx.isWorktree || (!resume && !flag("--claim-only")))) e.worktree = where;
-    Object.assign(e, { status: e.status === "review" ? "review" : "in_progress", branch, claim: { owner: owner || "dry-run", checkout: ctx.root, acquired: now() }, updated: now() });
+    enforce(resume && (!["in_progress", "review"].includes(e.status) || ctx.branch !== branch) && dirty(ctx), "working tree is not clean");
+    here = ctx.modality === "monorepo" || quick || ((override || checking) && (ctx.isWorktree || switching || (checkout && real(checkout) !== real(ctx.root)) || occupied.length));
+    where = here ? ctx.root : e.worktree || (flag("--claim-only") || resume ? ctx.root : path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`));
+    if (!here && !resume && !flag("--claim-only")) {
+      const rel = path.relative(ctx.root, P(ctx, slug).tickets);
+      enforce(git(["cat-file", "-e", `origin/${ctx.main}:${rel}`], { cwd: ctx.root, soft: true }) === null, `tickets are not on origin/${ctx.main} yet: commit and push ${rel} first`);
+      enforce(fs.existsSync(where), `${where} already exists`);
+    }
+    if (ctx.modality === "standalone" && !quick && (ctx.isWorktree || (!resume && !flag("--claim-only")) || (override && checkout))) e.worktree = where;
+    if (override && (e.status === "done" || (e.prs.length && e.prs.every((pr) => pr.state === "merged")))) e.reopened = true;
+    Object.assign(e, { status: e.status === "review" ? "review" : "in_progress", branch,
+      claim: { owner: owner || "dry-run", checkout: ctx.root, acquired: now(), ...(override ? { override: [...warnings] } : {}) }, updated: now() });
     if (!resume) e.next = flag("--claim-only") ? "create/reuse Jira ticket under the epic, save its metadata, then run next without --claim-only" : "write scenarios for the ticket's outcome and see them fail";
     if (flag("--claim-only") && !previous.branch) e.branch = "";
-  });
+  };
+  if (checking) {
+    // Pure preflight: no lock, observers, claims, Git writes or feature commits.
+    reserve(loadProgress(ctx, slug));
+    const result = { ticket: t.id, warnings: [...warnings] };
+    console.log(flag("--json") ? JSON.stringify(result) : result.warnings.length ? result.warnings.join("\n") : "No start warnings.");
+    return;
+  }
+  const reserved = updateProgress(ctx, slug, reserve);
+  for (const message of warnings) console.error(`WARNING (explicit override): ${message}`);
   if (flag("--claim-only")) {
     commitFeaturesRepo(ctx, slug, `dt: claim ${slug} ticket ${t.id}`);
     console.log(`claimed (no branch created):\n${describe(ctx, slug, t, "")}\n${ticketState(reserved.tickets[t.id])}`);
@@ -803,23 +856,20 @@ function cmdNext(ctx, slug) {
   try {
     if (resume) {
       if (ctx.branch !== branch) {
-        if (dirty(ctx)) fail("working tree is not clean");
-        run("git", ["switch", branch], { cwd: ctx.root });
+        enforce(dirty(ctx), "working tree is not clean");
+        if (!flag("--no-fetch")) git(["fetch", "--quiet", "origin", branch], { cwd: ctx.root, soft: true });
+        run("git", ["switch", ...(override ? ["--ignore-other-worktrees"] : []), branch], { cwd: ctx.root });
       }
       console.log(`resume: already on ${branch}\n` + describe(ctx, slug, t, "") + ticketState(reserved.tickets[t.id]));
     } else {
       if (!flag("--no-fetch")) git(["fetch", "--quiet", "origin", ctx.main], { cwd: ctx.root, soft: true });
-      if (ctx.modality === "monorepo" || quick) {
+      if (here) {
         run("git", ["switch", "-c", branch, `origin/${ctx.main}`], { cwd: ctx.root });
         run("git", ["push", "-u", "origin", branch], { cwd: ctx.root });
         console.log(describe(ctx, slug, t, `on ${branch}${lane ? ` (${lane})` : ""}`));
       } else {
-        const rel = path.relative(ctx.root, P(ctx, slug).tickets);
-        if (git(["cat-file", "-e", `origin/${ctx.main}:${rel}`], { cwd: ctx.root, soft: true }) === null) fail(`tickets are not on origin/${ctx.main} yet: commit and push ${rel} first`);
-        if (fs.existsSync(where)) fail(`${where} already exists`);
         run("git", ["worktree", "add", "-b", branch, where, `origin/${ctx.main}`], { cwd: ctx.root });
         run("git", ["push", "-u", "origin", branch], { cwd: DRY ? ctx.root : where });
-        // No agent works in the new worktree yet. Its /dt-lane call will claim it.
         updateProgress(ctx, slug, (prog) => { assertClaim(ticketOf(prog, t.id), owner); ticketOf(prog, t.id).claim = null; });
         console.log(describe(ctx, slug, t, `in worktree ${where}`) + `\n\nopen pi in ${where} and run: /dt-lane ${slug} ${t.id}`);
       }
@@ -832,8 +882,7 @@ function cmdNext(ctx, slug) {
       if (!created || resume) {
         prog.tickets[t.id] = previous;
         for (const [id, claim] of released) ticketOf(prog, id).claim = claim;
-      }
-      else e.next = `setup interrupted: ${String(error.message).slice(0, 300)}; resume /dt-lane ${t.id}`;
+      } else e.next = `setup interrupted: ${String(error.message).slice(0, 300)}; resume /dt-lane ${t.id}`;
     });
     throw error;
   }
@@ -875,6 +924,10 @@ function afterMerge(ctx, slug, id) {
   if (ctx.modality !== "standalone") return;
   const saved = loadProgress(ctx, slug).tickets[pad(id)];
   const wt = saved?.worktree || path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${id}`);
+  if (fs.existsSync(wt) && fs.realpathSync(wt) === fs.realpathSync(ctx.mainRoot)) {
+    console.log(`retained main checkout ${wt}; explicit override did not create a disposable worktree`);
+    return;
+  }
   if (fs.existsSync(wt)) {
     const r = DRY ? "" : git(["worktree", "remove", wt], { cwd: ctx.mainRoot, soft: true });
     console.log(r === null ? `could not remove ${wt} (uncommitted changes?): remove it yourself with git worktree remove --force` : `removed worktree ${wt}`);
@@ -983,13 +1036,16 @@ function cmdPr(ctx, slug, id) {
     updateProgress(ctx, slug, (prog) => {
       const e = ticketOf(prog, t.id);
       assertClaim(e, opt("--owner"));
+      if (e.reopened && !e.prs.some((old) => old.number === pr.number)) delete e.reopened;
       upsert(e.prs, pr, "number");
       Object.assign(e, { status: e.status === "done" ? "done" : "review", next: `/dt-review ${slug} ${t.id}`, updated: now() });
     });
     commitFeaturesRepo(ctx, slug, `dt: PR for ${slug} ticket ${t.id}`);
   };
   const existing = sh("gh", ["pr", "view", head, "--json", "url", "--jq", ".url"], { cwd: ctx.root, soft: true });
-  if (existing) { record(existing); return console.log(`PR already open: ${existing}`); }
+  const reopening = t && loadProgress(ctx, slug).tickets[t.id]?.reopened;
+  const oldPr = existing && reopening ? ghPr(ctx, existing) : null;
+  if (existing && (!reopening || !oldPr || !["merged", "closed"].includes(oldPr.state))) { record(existing); return console.log(`PR already open: ${existing}`); }
   run("git", ["push", "-u", "origin", head], { cwd: ctx.root });
   const tmp = path.join(os.tmpdir(), `dt-pr-${head.replace(/[^\w]+/g, "-")}.md`);
   fs.writeFileSync(tmp, body);
@@ -1143,9 +1199,9 @@ const HELP = {
     options: [["--no-gh", "Skip refreshing PRs and issues from GitHub"]],
   },
   next: {
-    usage: "dt.mjs next <slug> --owner ID [--ticket ID] [--force] [--dry-run]",
-    description: "Pick a ready ticket, enforcing dependencies, shared touches and unsafe pairs, without an in-flight count limit.\nT2 monorepo: branch in the current lane. T2 standalone: create a worktree from the main checkout.\nT0/T1: branch quick/<slug> in the current checkout, without Jira setup.\nOn the ticket's branch already: print its saved state to resume from.",
-    options: [["--ticket ID", "Select a specific ticket instead of the first ready ticket"], ["--owner ID", "Session ID claiming this ticket atomically before branching"], ["--force", "Explicit ticket only: take over a claim in its saved checkout; does not stop the old agent"], ["--claim-only", "Claim without Git side effects; create/save Jira metadata before branching"], ["--no-fetch", "Do not fetch the main branch first"], ["--dry-run", "Print Git commands instead of running them"]],
+    usage: "dt.mjs next <slug> --owner ID [--ticket ID] [--force|--override] [--check-only] [--dry-run]",
+    description: "Pick a ready ticket by default. An explicit --override accepts all ticket-start policy warnings, including dependencies, shared touches, unsafe pairs, saved blockers, pending plans, ownership and checkout conflicts, or completed work. Invalid IDs/data, the progress lock and native Git errors are not bypassed.\nT2 monorepo: branch in the current lane. T2 standalone: create a worktree from the main checkout.\nT0/T1: branch quick/<slug> in the current checkout, without Jira setup.\nOn the ticket's branch already: print its saved state to resume from.",
+    options: [["--ticket ID", "Select a specific ticket instead of the first ready ticket"], ["--owner ID", "Session ID claiming this ticket atomically before branching"], ["--force", "Explicit ticket only: take over a claim in its saved checkout; does not stop the old agent"], ["--override", "Explicit ticket only: accept all start warnings; takeover does not stop other agents and does not discard local files"], ["--check-only", "Read-only start preflight: no claims, state writes or Git changes"], ["--json", "With --check-only, print the ticket ID and complete warning list as JSON"], ["--claim-only", "Claim without Git side effects; create/save Jira metadata before branching"], ["--no-fetch", "Do not fetch the main branch first"], ["--dry-run", "Print Git commands instead of running them"]],
   },
   gate: {
     usage: "dt.mjs gate <slug> <0|2|3> <approve|change|pending> [options]",

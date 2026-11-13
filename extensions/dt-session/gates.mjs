@@ -13,14 +13,14 @@ export function scopeProposal(branch, repo) {
 	return value && validSlug(value.slug) && /^T[012]$/.test(value.tier) && TYPES.includes(value.type) && typeof value.note === "string" && value.note.length <= 400 && value.key === repo?.key && value.base === repo?.featuresBase ? value : null;
 }
 export function ticketMerged(ticket) {
-	return Boolean(ticket?.prs?.length) && ticket.prs.every((pr) => pr.state === "merged");
+	return !ticket?.reopened && Boolean(ticket?.prs?.length) && ticket.prs.every((pr) => pr.state === "merged");
 }
 export function ticketPending(ticket) {
 	return ticket?.status !== "done" && (ticket?.acceptance?.state === "pending" || (!ticket?.acceptance && ticket?.status === "review" && /(?:Gate\s*3|G3)\s*:\s*(?:merge decision|waiting)|^\s*(?:Gate\s*3|G3)\s+merge decision\b/i.test(ticket.next || "")));
 }
 export const planApproved = (snapshot) => snapshot?.prog.gates.G2?.state === "approved";
 // Tickets /dt-check-merged inspects: not closed yet, with at least one saved PR.
-export const closable = (snapshot) => snapshot.tickets.filter((t) => snapshot.prog.tickets[t.id]?.status !== "done" && snapshot.prog.tickets[t.id]?.prs?.length);
+export const closable = (snapshot) => snapshot.tickets.filter((t) => snapshot.prog.tickets[t.id]?.status !== "done" && !snapshot.prog.tickets[t.id]?.reopened && snapshot.prog.tickets[t.id]?.prs?.length);
 
 export function pendingGates(view) {
 	if (view.scope) return ["plan"];
@@ -67,17 +67,17 @@ export function nextCommands(view, logic) {
 	const saved = sessionCommand((s.prog.next || "").trim(), view.project.slug);
 	if (saved === "/dt-revise") return [saved];
 	const work = saved.match(/^\/dt-(lane|review) (\d{1,2}|next)(?: (autofix))?$/);
-	if (work) {
+	if (work?.[1] === "review") {
 		const id = work[2].padStart(2, "0");
-		if (work[2] === "next" && work[1] === "lane") { try { logic.pickReady(s.tickets, s.st); return [saved]; } catch {} }
-		else if (work[1] === "review" && s.st[id] && s.st[id].status !== "done") return [saved];
+		if (s.st[id] && s.st[id].status !== "done") return [saved];
 	}
 	const awaiting = s.tickets.filter((t) => ticketPending(s.prog.tickets[t.id]));
 	if (awaiting.length) return [CHECK_MERGED];
-	// The picker checks claims/checkout before selection; never name another agent's build.
-	try { logic.pickReady(s.tickets, s.st); return ["/dt-lane"]; } catch { /* no runnable tickets */ }
+	// Finish review before proposing more implementation, even if another ticket is ready.
 	const review = s.tickets.filter((t) => s.st[t.id].status === "review");
 	if (review.length) return review.map((t) => `/dt-review ${t.id}`);
+	// The picker checks claims/checkout before selection; never name another agent's build.
+	try { logic.pickReady(s.tickets, s.st); return ["/dt-lane"]; } catch { /* no runnable tickets */ }
 	if (s.tickets.some((t) => s.st[t.id].status === "in_progress")) return ["/dt-lane"];
 	if (s.tickets.every((t) => s.st[t.id].status === "done")) return [];
 	return ["/dt-revise"];

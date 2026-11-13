@@ -19,7 +19,7 @@ For a spike (a ticket with an Investigation section), review the findings agains
 
 **Axis 1 - Standards**: repo coding standards, naming, error handling, test quality (do tests assert behavior at the boundary, or mirror the implementation?), obvious smells. Flag references to the dev-turbo plan, spec, tickets, slices or gates in shipped code, comments, test names, documentation, commit messages or PR titles/bodies; do not assume readers know the workflow. Suggest wording about current behavior and technical reasons instead, while preserving required issue links and concrete PR sequencing.
 **Axis 2 - Ticket adherence**: does the diff deliver the ticket's Outcome and Done when, within its Scope and Out of scope? Missing behavior, extra behavior, scenarios passing for the wrong reason, interface changes or deviations not mentioned in the PR description. Necessary test, shared-fixture and test-only build updates outside `touches` are supporting work, not scope violations; do not require `/dt-revise` for them. Preserve assertions, validation, public contracts and concurrent lane ownership.
-**Axis 3 - Architecture** (the one I care most about), against the ticket's module ownership, any relevant building blocks in ticket 00, and the interfaces already merged:
+**Axis 3 - Architecture** (the one I care most about), against the spec's module map, the ticket's Scope and `touches`, and the interfaces already merged:
 - Responsibility: did any module take on a second job?
 - Depth: did an interface grow wider, or leak internals?
 - Dependencies: new edge, wrong direction, cycle, reach into another module's internals?
@@ -32,7 +32,7 @@ Keep the review in roughly 200 words unless the findings genuinely need more. Pu
 - If there are findings, use one compact table: Axis | Severity (blocker / should / nit) | File:line | Finding | Suggested fix. One short row per distinct issue; do not pad it with low-value nits.
 - End with the code-review verdict: merge / merge after fixes / rework, and one concrete thing worth looking at yourself, if any.
 - No findings: say "No actionable code or architecture findings. Code-review verdict: merge." Do not emit an empty table or offer unnecessary fixes.
-- No mandatory architecture diagram. Add a small diagram of only the relevant modules when it explains an actual finding better than a sentence. Never reproduce the full building-block diagram; checking the whole plan against the code belongs to `/dt-revise`.
+- No mandatory architecture diagram. Add a small diagram of only the relevant modules when it explains an actual finding better than a sentence. Never reproduce the full building-block diagram; a broader code-alignment audit needs an explicit request, while optional `/dt-revise` checks spec/ticket coverage.
 
 Keep all findings in chat. Do not post a PR review, PR comment or ticket comment; do not run `dt.mjs comment`, `gh pr review`, `gh pr comment` or a remote commenting tool as part of this command.
 
@@ -43,5 +43,7 @@ Save the outcome so a new session can pick it up. Progress updates replace lists
 
 After applying fixes, update the todo and verdict from the changed code and focused checks; do not require another `/dt-review` invocation before the merge handover.
 
+Planning files may be maintained during the review: update clear wording/path mismatches in the spec and editable tickets directly, without requiring another command. Preserve settled behavior and completed tickets, and coordinate another active ticket’s scope changes. This does not authorize code fixes without the user’s selection.
+
 ## Applying fixes
-Only if the user selects findings to fix or the arguments contain "autofix": apply the authorized fixes on the reviewed branch and list what changed. Otherwise change no code. Before touching code, run `node ~/.pi/agent/dt/dt.mjs next $1 --ticket <id> --owner <session-owner>` to claim the ticket in its saved checkout; if refused or directed to another checkout, STOP. Never force a claim from review. Save progress with the same owner and add `--release-claim` to the final update when handing work back. Interface changes that other tickets depend on go through `/dt-revise`, not autofix.
+Only if the user selects findings to fix or the arguments contain "autofix": apply the authorized fixes on the reviewed branch and list what changed. Otherwise change no code. Before touching code, run `node ~/.pi/agent/dt/dt.mjs next $1 --ticket <id> --owner <session-owner>` to claim the ticket in its saved checkout; if refused or directed to another checkout, STOP. Never force a claim from review. Save progress with the same owner and add `--release-claim` to the final update when handing work back. Interface changes that other tickets depend on require a user decision and coordination, not automatic fixes; once settled, update editable planning files directly without requiring `/dt-revise`. Clear planning wording/path corrections may also be saved directly, preserving completed tickets and agreed behavior.

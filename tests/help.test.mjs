@@ -5,17 +5,18 @@ import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const readme = await readFile(new URL("./README.md", import.meta.url), "utf8");
+const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
 
 test("README's help section makes the picker the default and explains every label", () => {
   const flow = readme.split("## Flow\n")[1].split(/^## /m)[0];
-  assert.match(flow, /\| `\/dt-lane \[id \[force\]\]` \| Open the ticket picker/);
+  assert.ok(flow.includes('| `/dt-lane [id [force\\|override]]` | Open the ticket picker'));
   assert.match(flow, /### Ticket picker and lane ownership/);
-  for (const label of ["READY", "RESUME", "LOCKED", "BLOCKED", "REVIEW", "MERGED"]) {
+  for (const label of ["READY", "RESUME", "WARNING (LOCKED)", "WARNING (BLOCKED)", "WARNING (REVIEW)", "WARNING (MERGED)"]) {
     assert.ok(flow.includes(`| **${label}** |`), `missing ${label}`);
   }
   assert.match(flow, /Canceling changes nothing/);
-  assert.match(flow, /claimed it while the picker was open/);
+  assert.match(flow, /All current policy warnings are rechecked when claiming/);
+  assert.match(flow, /explicitly override/);
   assert.match(flow, /force.*saved checkout/);
   assert.match(flow, /--release-claim/);
 });
@@ -35,7 +36,7 @@ test("Pi runtime: dt-help displays picker/lock rules from README without workflo
     "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js"),
     "@earendil-works/pi-tui": join(pkg, "../pi-tui/dist/index.js"),
   } });
-  const { default: help, workflowGuide } = await jiti.import(join(import.meta.dirname, "extensions/dt-help.ts"));
+  const { default: help, workflowGuide } = await jiti.import(join(import.meta.dirname, "../extensions/dt-help.ts"));
   const messages = [], notices = [];
   let command;
   help({
@@ -50,7 +51,7 @@ test("Pi runtime: dt-help displays picker/lock rules from README without workflo
   assert.equal(messages.length, 1);
   assert.equal(messages[0].content, workflowGuide(readme));
   assert.match(messages[0].content, /Ticket picker and lane ownership/);
-  assert.match(messages[0].content, /\*\*LOCKED\*\*/);
+  assert.match(messages[0].content, /\*\*WARNING \(LOCKED\)\*\*/);
   assert.ok(!messages[0].content.includes("## The script"));
   await command.handler("unexpected", ctx);
   assert.equal(messages.length, 1);

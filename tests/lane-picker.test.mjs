@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as logic from "./dt.mjs";
-import { laneOptions, chooseLane } from "./extensions/dt-session/lane-picker.mjs";
+import * as logic from "../dt.mjs";
+import { laneOptions, chooseLane } from "../extensions/dt-session/lane-picker.mjs";
 
 const repo = { root: "/lane1", lanes: ["/lane1", "/lane2"], branch: "main" };
 const project = { slug: "demo" };
@@ -21,7 +21,8 @@ test("picker orders available tickets first and labels locked/blocked tickets wi
   assert.deepEqual(options.map((o) => o.id), ["02", "04", "01", "03"]);
   assert.equal(options[0].selectable, true);
   assert.match(options[2].label, /LOCKED.*other.*\/lane2/);
-  assert.equal(options[2].selectable, false);
+  assert.equal(options[2].selectable, true);
+  assert.equal(options[2].warning, true);
   assert.match(options[3].label, /BLOCKED.*blocked by 01/);
   assert.equal(JSON.stringify(snapshot), before);
 });
@@ -39,7 +40,7 @@ test("released lane assignments do not lock and own claims can resume", () => {
 test("picker respects gates, resource limits, saved blockers and current branch", () => {
   const f = fixture();
   f.snapshot.prog.gates.G2.state = "pending";
-  assert.equal(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "02").selectable, false);
+  assert.equal(laneOptions(f.snapshot, repo, "here", logic).find((o) => o.id === "02").warning, true);
   f.snapshot.prog.gates.G2.state = "approved";
   f.snapshot.prog.tickets["02"] = { status: "review" };
   f.snapshot.st = logic.deriveStatuses(tickets, f.snapshot.prog);
@@ -53,7 +54,7 @@ test("picker respects gates, resource limits, saved blockers and current branch"
   assert.match(laneOptions(g.snapshot, repo, "here", logic).find((o) => o.id === "04").label, /Human input/);
 });
 
-test("selecting a ready ticket returns its ID; cancel, locked selection and non-UI never start work", async () => {
+test("selecting ready or warning tickets returns an ID for confirmation; cancel and non-UI do not choose work", async () => {
   let selection = "ready", calls = 0;
   const notices = [];
   const ctx = { hasUI: true, sessionManager: { getSessionId: () => "here" }, ui: {
@@ -69,8 +70,8 @@ test("selecting a ready ticket returns its ID; cancel, locked selection and non-
   selection = "cancel";
   assert.equal(await chooseLane(args), null);
   selection = "locked";
-  assert.equal(await chooseLane(args), null);
-  assert.match(notices.at(-1), /LOCKED.*\/dt-lane 01 force/);
+  assert.equal(await chooseLane(args), "01");
+  // Returning an ID is not a claim or override; confirmation follows in the input handler.
   ctx.hasUI = false;
   assert.equal(await chooseLane({ ...args, loadSnapshot() { throw new Error("must not load"); } }), null);
   assert.equal(calls, 3);

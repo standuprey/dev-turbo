@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as logic from "./dt.mjs";
-import { SCOPE, closable, scopeProposal, pendingGates, approvalPlan, approvalCompletions, nextCommands, namedText } from "./extensions/dt-session/gates.mjs";
-import { renderStatus } from "./extensions/dt-status/status.mjs";
+import * as logic from "../dt.mjs";
+import { SCOPE, closable, scopeProposal, pendingGates, approvalPlan, approvalCompletions, nextCommands, namedText } from "../extensions/dt-session/gates.mjs";
+import { renderStatus } from "../extensions/dt-status/status.mjs";
 
 const repo = { key: "org/repo", featuresBase: "/features" };
 const project = { slug: "demo", tier: "T2", type: "service", key: repo.key, base: repo.featuresBase };
@@ -28,7 +28,7 @@ test("a plan proposal is saved in the session, scoped to the repo, not an approv
 	assert.deepEqual(nextCommands({ scope: data }, logic), ["/dt-approve plan"]);
 });
 
-test("a revised plan awaits approval; completion offers only the plan", () => {
+test("legacy pending revisions still await their recorded approval", () => {
 	const revised = view({ G2: { state: "pending", note: "new building block" } }, { status: "review", prs: [{ number: 1, state: "open" }] });
 	assert.deepEqual(pendingGates(revised), ["plan"]);
 	assert.equal(approvalPlan(revised, "plan", []).id, 2);
@@ -38,6 +38,18 @@ test("a revised plan awaits approval; completion offers only the plan", () => {
 	assert.throws(() => approvalPlan(view(), "plan", []), /No plan is awaiting/);
 	assert.throws(() => approvalPlan(view(), "drift", []), /Usage/);
 	assert.deepEqual(nextCommands(revised, logic), ["/dt-approve plan"]);
+});
+
+test("changed ticket content does not revoke an approved plan or add another approval step", () => {
+	const v = view({}, { status: "done" }, [ticket, { ...ticket, id: "01", blocked_by: ["00"], title: "Original scope" }]);
+	const approval = { ...v.snapshot.prog.gates.G2 };
+	v.snapshot.tickets[1] = { ...v.snapshot.tickets[1], title: "Expanded scope", touches: ["new-module"] };
+	v.snapshot.tickets.push({ ...ticket, id: "02", blocked_by: ["01"], touches: ["other-module"] });
+	v.snapshot.st = logic.deriveStatuses(v.snapshot.tickets, v.snapshot.prog);
+	assert.deepEqual(pendingGates(v), []);
+	assert.deepEqual(approvalCompletions(v, ""), []);
+	assert.deepEqual(nextCommands(v, logic), ["/dt-lane"]);
+	assert.deepEqual(v.snapshot.prog.gates.G2, approval, "content edits keep the original approval intact");
 });
 
 test("tickets are not approved: /dt-approve points to /dt-check-merged, which inspects open tickets with PRs", () => {

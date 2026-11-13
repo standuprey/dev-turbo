@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as logic from "./dt.mjs";
-import { renderStatus, renderTicketProgress } from "./extensions/dt-status/status.mjs";
-import { readTicketPreview, displayTicket, ticketStatus } from "./extensions/dt-session/ticket-preview.mjs";
+import * as logic from "../dt.mjs";
+import { renderStatus, renderTicketProgress } from "../extensions/dt-status/status.mjs";
+import { readTicketPreview, displayTicket, ticketStatus } from "../extensions/dt-session/ticket-preview.mjs";
 
 async function fixture(t, progress = {}) {
 	const base = await mkdtemp(join(tmpdir(), "dt-status-"));

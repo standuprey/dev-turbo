@@ -146,10 +146,16 @@ export default async function (pi: ExtensionAPI) {
 			}
 			if (text?.startsWith("/dt-lane ") && project) {
 				const selectedProject = project;
-				const [, , id, force] = text.split(" ");
-				const { snapshot } = await loadSnapshot(ctx, selectedProject);
+				const [, , id, option] = text.split(" ");
+				const { snapshot, logic } = await loadSnapshot(ctx, selectedProject);
+				const setupClaim = selectedProject.tier === "T2" && logic.requiresJira(selectedProject.key) && !snapshot.prog.tickets[id.padStart(2, "0")]?.branch;
+				const checked = await pi.exec("node", [dt, "next", selectedProject.slug, "--ticket", id, "--owner", ctx.sessionManager.getSessionId(), "--check-only", "--json", ...(setupClaim ? ["--claim-only"] : []), ...(option === "force" ? ["--force"] : []), ...(option === "override" ? ["--override"] : [])], { cwd: ctx.cwd, timeout: 15000 });
+				if (checked.code !== 0) throw new Error(checked.stderr || "Cannot inspect ticket start warnings.");
+				const { warnings } = JSON.parse(checked.stdout);
+				if (!Array.isArray(warnings) || warnings.some((w: unknown) => typeof w !== "string")) throw new Error("Invalid ticket start warnings.");
 				const { confirmTicket } = await load("./ticket-preview.mjs");
-				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: force === "force" })) return { action: "handled" };
+				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: option === "force", override: option === "override", warnings })) return { action: "handled" };
+				if (warnings.length || option === "override") text = `/dt-lane ${selectedProject.slug} ${id} override`;
 				refreshSelection(ctx);
 				if (project?.slug !== selectedProject.slug || project?.key !== selectedProject.key || project?.base !== selectedProject.base) throw new Error("Project changed during confirmation. Run /dt-lane again.");
 				laneProjects.add(selectedProject.slug);
@@ -174,8 +180,8 @@ export default async function (pi: ExtensionAPI) {
 		// A stable prompt section avoids adding another hidden transcript message each turn.
 		contextContent ??= [
 			project ? `Selected dev-turbo project: ${project.slug} (${project.tier}, ${project.type}), repo ${project.key}, feature base ${project.base}.` : "No project selected. Use /dt-start or /dt-resume.",
-			`Lane claim owner for this session: ${ctx.sessionManager.getSessionId()}. Pass --owner ${ctx.sessionManager.getSessionId()} to dt.mjs next, ticket progress updates and pr. Never use another session's owner. Acquire the claim with next before touching ticket code; if refused, STOP. On a work handover save --release-claim with the final progress update. Force is only allowed when the user explicitly ran /dt-lane <id> force; it does not stop the previous agent.`,
-			"Only user commands record approval: /dt-approve plan for a new or revised plan; /dt-check-merged closes tickets whose PRs the user merged. Discussion never approves. Do not run dt.mjs gate approve yourself or inject /dt-approve as a user message. Slash commands omit the selected slug; dt.mjs CLI still needs it.",
+			`Lane claim owner for this session: ${ctx.sessionManager.getSessionId()}. Pass --owner ${ctx.sessionManager.getSessionId()} to dt.mjs next, ticket progress updates and pr. Never use another session's owner. Acquire the claim with next before touching ticket code. A refused start requires user consent to override the warnings; never invent --override. On a work handover save --release-claim with the final progress update. Force is only allowed for explicit /dt-lane <id> force. --override is allowed only after the user explicitly requests /dt-lane <id> override or accepts the displayed start-warning confirmation. It overrides ticket-start policy checks, never malformed data or the progress lock, and does not stop previous agents or discard files.`,
+			"Only user commands approve new plans: /dt-approve plan; /dt-check-merged closes tickets whose PRs the user merged. Revisions to an approved feature do not require renewed plan approval: ask about unsettled decisions in chat, then edit and keep the original approval intact. Agents may update spec.md and editable ticket files directly during normal work; /dt-revise is an optional spec/ticket coverage audit, not an editing prerequisite. Preserve done/merged tickets and coordinate changes to another active ticket; progress.json is written only through dt.mjs. Do not create a new G2 pending gate for revisions or silently clear a legacy pending gate. Discussion does not approve an initial plan or close a ticket. Do not run dt.mjs gate approve yourself or inject /dt-approve as a user message. Slash commands omit the selected slug; dt.mjs CLI still needs it.",
 			draft ? `Pending plan proposal: ${JSON.stringify(draft)}. User next: /dt-approve plan.` : "At the end of a grill, give a short task summary and ask the user to choose T0/T1/T2. Never infer, recommend or default to a tier. After an explicit choice, write the plan files, call dt_propose_plan with that tier, then ask for /dt-approve plan. Choosing a tier in chat does not approve anything.",
 		].filter(Boolean).join("\n");
 		event.systemPromptOptions.sections.dt_project_context = contextContent;

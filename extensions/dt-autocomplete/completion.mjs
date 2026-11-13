@@ -62,7 +62,7 @@ export async function completeArguments(command, args, load, project = null) {
 	if (!project) return null;
 	const second = args.match(/^(\S+)([ \t]+)(\S*)$/);
 	if (command === "dt-lane" && second && /^\d{1,2}$/.test(second[1])) {
-		return match([{ value: "force", label: "force", description: "Take over in the saved checkout; check the previous agent is gone" }], second[3], second[1] + second[2]);
+		return match([{ value: "force", label: "force", description: "Take over in the saved checkout; check the previous agent is gone" }, { value: "override", label: "override", description: "Explicitly accept all ticket-start warnings; other agents are not stopped" }], second[3], second[1] + second[2]);
 	}
 	if (command === "dt-review" && second) {
 		return match([{ value: "autofix", label: "autofix" }], second[3], second[1] + second[2]);

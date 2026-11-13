@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SCOPE } from "./extensions/dt-session/gates.mjs";
+import { SCOPE } from "../extensions/dt-session/gates.mjs";
 
 const pkg = process.env.PI_PACKAGE_DIR;
 for (const key of ["test/repo", "csscompany-enterprise/monorepo", "csscompany-enterprise/ottercam"]) test(`Pi runtime (${key}): plan approval, cancelled/stale proposals, revised plans and /dt-check-merged closure`, { skip: !pkg }, async (t) => {
@@ -17,14 +17,14 @@ for (const key of ["test/repo", "csscompany-enterprise/monorepo", "csscompany-en
 	execFileSync("git", ["remote", "add", "origin", `https://github.com/${key}.git`], { cwd: dir });
 	execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], { cwd: dir });
 	await writeFile(join(dir, "config.json"), JSON.stringify({ defaults: { modality: "monorepo" } }));
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("./dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady, requireEpic, requiresJira } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
 	const require = createRequire(join(pkg, "package.json")), { createJiti } = require("jiti");
 	// Match Pi's legacy pi-ai import mapping, which also exposes TypeBox.
 	const ai = join(dir, "pi-ai.mjs");
 	await writeFile(ai, `export * from ${JSON.stringify(join(pkg, "../pi-ai/dist/compat.js"))};\nexport { Type } from ${JSON.stringify(require.resolve("typebox"))};\n`);
 	const jiti = createJiti(join(pkg, "package.json"), { alias: { "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js"), "@earendil-works/pi-tui": join(pkg, "../pi-tui/dist/index.js"), "@earendil-works/pi-ai": ai } });
-	const session = await jiti.import(join(import.meta.dirname, "extensions/dt-session/index.ts"), { default: true });
-	const approve = await jiti.import(join(import.meta.dirname, "extensions/dt-approve/index.ts"), { default: true });
+	const session = await jiti.import(join(import.meta.dirname, "../extensions/dt-session/index.ts"), { default: true });
+	const approve = await jiti.import(join(import.meta.dirname, "../extensions/dt-approve/index.ts"), { default: true });
 	const entries = [], notices = [], messages = [], gateCalls = [], handlers = new Map(), bus = new Map(), tools = new Map();
 	let command, check, confirmed = true, failGate = false, ticketPr = "OPEN", failPr = false, blockedSecond = false;
 	const prChecks = [], openPrs = new Set();
@@ -160,7 +160,7 @@ for (const key of ["test/repo", "csscompany-enterprise/monorepo", "csscompany-en
 		const result = spawnSync("bash", ["-c", shell], { cwd: dir, env: { ...process.env, DT_DIR: dir }, encoding: "utf8" });
 		return { isError: result.status !== 0, content: result.stdout + result.stderr };
 	};
-	const cli = `node ${JSON.stringify(join(import.meta.dirname, "dt.mjs"))}`;
+	const cli = `node ${JSON.stringify(join(import.meta.dirname, "../dt.mjs"))}`;
 	const beforeBlocked = await readFile(file, "utf8"), beforeMessages = messages.length;
 	const blocked = await agentBash(`${cli} gate demo 2 pending --note "new module" && ${cli} gate demo 2 approve`);
 	assert.equal(blocked.isError, true);

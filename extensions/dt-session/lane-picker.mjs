@@ -35,9 +35,10 @@ export function laneOptions(snapshot, repo, owner, logic) {
       try { logic.pickReady(tickets, st, t.id); state = "ready"; selectable = true; }
       catch (e) { reason = clean(e.message).replace(/^no ready ticket:\s*/, "").replace(new RegExp(`^${t.id}:\\s*`), ""); }
     }
-    const label = `${t.id} · ${clean(t.title)} · ${state.toUpperCase()}${reason ? " — " + clean(reason) : ""}`;
-    return { id: t.id, state, reason, selectable, label };
-  }).sort((a, b) => Number(b.selectable) - Number(a.selectable) || a.id.localeCompare(b.id));
+    const warning = !selectable;
+    const label = `${t.id} · ${clean(t.title)} · ${warning ? `WARNING (${state.toUpperCase()})` : state.toUpperCase()}${reason ? " — " + clean(reason) : ""}`;
+    return { id: t.id, state, reason, warning, selectable: true, label };
+  }).sort((a, b) => Number(a.warning) - Number(b.warning) || a.id.localeCompare(b.id));
 }
 
 export async function chooseLane({ project, ctx, loadSnapshot, logic }) {
@@ -51,11 +52,7 @@ export async function chooseLane({ project, ctx, loadSnapshot, logic }) {
   const selected = await ctx.ui.select(`Choose a ticket · ${project.slug}`, options.map((o) => o.label));
   if (!selected) return null;
   const option = options.find((o) => o.label === selected);
-  if (!option?.selectable) {
-    ctx.ui.notify(option?.state === "locked"
-      ? `Ticket ${option.id} is LOCKED: ${clean(option.reason)}. Open its saved checkout; use /dt-lane ${option.id} force only after checking the previous agent is gone.`
-      : `Ticket ${option?.id || ""} is unavailable: ${clean(option?.reason)}.`, "warning");
-    return null;
-  }
+  if (!option) return null;
+  // Selection is not an override: the existing ticket confirmation shows the warnings next.
   return option.id;
 }

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { completeArguments, createAutocompleteProvider, createDataLoader } from "./extensions/dt-autocomplete/completion.mjs";
+import { completeArguments, createAutocompleteProvider, createDataLoader } from "../extensions/dt-autocomplete/completion.mjs";
 
 const features = [{ slug: "checkout", label: "checkout · slicing" }, { slug: "catalog", label: "catalog · spec" }];
 const project = { slug: "checkout", base: "/missing", tier: "T2", type: "service" };
@@ -46,6 +46,8 @@ test("selected project's current ticket files supply IDs, titles and next", asyn
 	assert.equal(await completeArguments("dt-final-check", "07 a", get, selected), null);
 	assert.equal(await completeArguments("dt-lane", "n", get, selected), null);
 	assert.deepEqual(values(await completeArguments("dt-lane", "07 f", get, selected)), ["07 force"]);
+	assert.deepEqual(values(await completeArguments("dt-lane", "07 o", get, selected)), ["07 override"]);
+	assert.deepEqual(values(await completeArguments("dt-lane", "07 ", get, selected)), ["07 force", "07 override"]);
 	assert.equal(await completeArguments("dt-lane", "next f", get, selected), null);
 	assert.deepEqual(values(await completeArguments("dt-review", "07 a", get, selected)), ["07 autofix"]);
 	assert.equal(await completeArguments("dt-review", "my-branch", get, selected), null);

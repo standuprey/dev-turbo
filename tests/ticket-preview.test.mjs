@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readTicketPreview, summarizeTicket, displayTicket, confirmTicket, ticketStatus } from "./extensions/dt-session/ticket-preview.mjs";
+import { readTicketPreview, summarizeTicket, displayTicket, confirmTicket, ticketStatus } from "../extensions/dt-session/ticket-preview.mjs";
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), "dt-ticket-preview-"));
@@ -81,6 +81,24 @@ test("summary handles bold outcome headings, missing outcomes and long text", ()
   const long = summarizeTicket({ ...ticket, content: `## Outcome\n${"Long outcome. ".repeat(1000)}\n## Scenarios\nHidden scenario` });
   assert.ok(long.length < 600);
   assert.doesNotMatch(long, /Hidden scenario/);
+});
+
+test("start warnings use the existing confirmation and explicit non-UI overrides remain opt-in", async (t) => {
+  const { snapshot } = await fixture(t);
+  let answer = false, calls = 0;
+  const notices = [];
+  const args = { snapshot, id: "01", project: { slug: "demo" }, warnings: ["blocked by 42", "unsafe to run with 07"], pi: { sendMessage() {} }, ctx: { hasUI: true, ui: { notify: (m) => notices.push(m), confirm: async (title, body) => {
+    calls++; assert.match(title, /Start anyway/); assert.match(body, /blocked by 42/); assert.match(body, /unsafe to run with 07/); assert.match(body, /does not stop other agents/); return answer;
+  } } } };
+  assert.equal(await confirmTicket(args), false);
+  answer = true;
+  assert.equal(await confirmTicket(args), true);
+  args.ctx.hasUI = false;
+  assert.equal(await confirmTicket(args), false);
+  args.override = true;
+  assert.equal(await confirmTicket(args), true);
+  assert.equal(calls, 2);
+  assert.match(notices.at(-1), /Explicit override requested/);
 });
 
 test("a ticket edited while its confirmation is open must be reviewed again", async (t) => {

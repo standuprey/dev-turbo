@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import * as logic from "./dt.mjs";
-import { laneOptions } from "./extensions/dt-session/lane-picker.mjs";
+import * as logic from "../dt.mjs";
+import { laneOptions } from "../extensions/dt-session/lane-picker.mjs";
 
 test("normalization drops lane numbers and migrates legacy worktree paths", () => {
   const raw = { tickets: {

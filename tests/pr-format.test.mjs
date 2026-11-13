@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { ticketPrContent } from "./dt.mjs";
+import { ticketPrContent } from "../dt.mjs";
 
 const ctx = { modality: "monorepo", key: "csscompany-enterprise/monorepo" };
 const ticket = { id: "01", title: "Keep v1 validation on the shared reader" };
@@ -45,7 +45,7 @@ test("unknown Jira hosts and missing Description headings block creation", () =>
 });
 
 test("lane instructions cover extra PRs and saving the verified Jira URL", () => {
-  const prompt = readFileSync(new URL("./prompts/dt-lane.md", import.meta.url), "utf8");
+  const prompt = readFileSync(new URL("../prompts/dt-lane.md", import.meta.url), "utf8");
   assert.match(prompt, /--issue <KEY>=<URL>/);
   assert.match(prompt, /<UPPERCASE-TICKET-ID>: <ticket-title>/);
   assert.match(prompt, /extra PRs created outside `dt\.mjs pr` too/);

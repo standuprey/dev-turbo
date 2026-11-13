@@ -3,18 +3,18 @@ import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolveCommand } from "./extensions/dt-session/state.mjs";
+import { resolveCommand } from "../extensions/dt-session/state.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
-const readme = read("./README.md"), workflow = read("./workflow.md");
-const start = read("./prompts/dt-start.md"), revise = read("./prompts/dt-revise.md"), lane = read("./prompts/dt-lane.md"), review = read("./prompts/dt-review.md");
+const readme = read("../README.md"), workflow = read("../workflow.md");
+const start = read("../prompts/dt-start.md"), revise = read("../prompts/dt-revise.md"), lane = read("../prompts/dt-lane.md"), review = read("../prompts/dt-review.md");
 const flow = readme.split("## Flow\n")[1]?.split(/^## /m)[0];
 
 test("only four workflow prompts remain; removed prompts are cleaned up on install", () => {
   for (const name of ["dt-spec", "dt-slice", "dt-amend", "dt-drift", "dt-quick", "dt-final-check", "dt-accept"]) {
-    assert.equal(existsSync(new URL(`./prompts/${name}.md`, import.meta.url)), false, name);
+    assert.equal(existsSync(new URL(`../prompts/${name}.md`, import.meta.url)), false, name);
   }
-  const install = read("./install.sh");
+  const install = read("../install.sh");
   for (const name of ["dt-spec", "dt-slice", "dt-amend", "dt-drift", "dt-quick", "dt-final-check"]) assert.match(install, new RegExp(`\\b${name}\\b`));
   for (const doc of [readme, workflow, start, revise, lane, review]) assert.doesNotMatch(doc, /\/dt-(?:spec|slice|amend|drift|quick|show)\b(?![^\n]*print their replacement)/);
 });
@@ -34,7 +34,7 @@ test("the grill waits for the user's tier choice after a short summary", () => {
     assert.match(doc, /short (?:task )?summary/);
     assert.match(doc, /without guessing or recommending a tier/);
   }
-  const session = read("./extensions/dt-session/index.ts");
+  const session = read("../extensions/dt-session/index.ts");
   assert.match(session, /After an explicit choice, write the plan files, call dt_propose_plan with that tier/);
   assert.match(session, /after the user explicitly chose T0\/T1\/T2/);
 });
@@ -57,23 +57,40 @@ test("the grill writes a short brief and outcome-level tickets, not a design doc
   assert.match(start, /Never run `dt\.mjs gate` yourself/);
 });
 
-test("spec requirements stay separate from ticket implementation and targeted revisions", () => {
+test("the spec keeps the module map while tickets own execution details", () => {
   const spec = start.split("### T2 brief: `spec.md`")[1].split("### Tickets:")[0];
-  assert.match(spec, /The spec answers \*\*what and why\*\*, not how/);
-  assert.match(spec, /Do not include slices, ticket lists or IDs, module ownership, dependency tables, architecture diagrams, implementation steps or landing order/);
-  assert.doesNotMatch(spec, /\*\*Building blocks\*\*|Mermaid `flowchart/);
+  assert.match(spec, /The spec answers \*\*what and why\*\* and keeps the shared module map/);
+  assert.match(spec, /\*\*Module map\*\*/);
+  assert.match(spec, /Module\/touches key \| Code or artifact paths \| Responsibility \(one sentence\) \| Depends on \| New or existing/);
+  assert.match(spec, /Every `touches` key/);
+  assert.match(spec, /exact name used in ticket frontmatter/);
+  assert.match(spec, /Do not leave shorthand keys undefined/);
+  assert.match(spec, /Do not include slices, ticket lists or IDs, ticket\/lane ownership, ticket dependency tables, implementation steps or landing order/);
+  assert.match(spec, /Keep interface declarations and command\/schema details out of the module map/);
+  assert.doesNotMatch(spec, /^```/m);
   assert.match(start, /Tickets answer \*\*how\*\*/);
-  assert.match(start, /Ticket 00 owns the shared \*\*Building blocks\*\* section/);
-  assert.match(start, /diagram from ticket 00/);
+  assert.match(start, /Ticket 00 uses the shared \*\*Module map\*\* in `spec.md`/);
+  assert.match(start, /do not duplicate the canonical map in tickets/);
+  assert.match(start, /T2: the compact module map from `spec.md`/);
+  assert.match(start, /only when the user requested one/);
+});
+
+test("revisions preserve and backfill the spec module map without reopening completed tickets", () => {
   assert.match(revise, /read only the ticket bodies needed/);
-  assert.match(revise, /implementation-only revisions leave it untouched/);
+  assert.match(revise, /Keep the shared module map in `spec.md`/);
+  assert.match(revise, /Implementation-only revisions that do not affect the module map leave it untouched/);
+  assert.match(revise, /module names, paths, responsibilities or module dependencies change/);
+  assert.match(revise, /Backfill a missing or incomplete module map/);
+  assert.match(revise, /without editing done or merged tickets/);
   assert.match(revise, /Edit the affected tickets without rewriting unrelated ones/);
-  assert.match(revise, /Move existing slices, module ownership, architecture and landing order out of the spec/);
   assert.match(revise, /Never edit done or merged tickets to relocate it/);
-  assert.match(lane, /Build ticket 00's interfaces from its Building blocks section/);
+  assert.match(lane, /Resolve `touches` keys through the spec's Module map/);
+  assert.match(lane, /Build ticket 00's interfaces from that map and the ticket's Scope/);
+  assert.match(review, /against the spec's module map, the ticket's Scope and `touches`/);
   for (const doc of [readme, workflow]) {
     assert.match(doc, /spec says what and why/);
-    assert.match(doc, /[Ii]mplementation-only (?:changes|revisions) leave the spec untouched/);
+    assert.match(doc, /shared module map lives in `spec.md`/);
+    assert.match(doc, /[Ii]mplementation-only (?:changes|revisions) that do not affect the module map leave the spec untouched/);
   }
 });
 
@@ -93,7 +110,7 @@ test("unresolved implementation questions become bounded spikes with dependent w
   assert.match(lane, /Replace the implementation loop's scenario-first and TDD steps/);
   assert.match(lane, /stop at the stated time or effort limit/);
   assert.match(lane, /Commit the findings so normal PR review and merge closure apply/);
-  assert.match(lane, /dependent tickets remain blocked until the spike is closed and their unresolved approach is settled/);
+  assert.match(lane, /dependent tickets remain blocked until the spike is closed and their unresolved approach is settled/i);
   assert.match(review, /review the findings against its question, experiment, effort limit and Done when/);
   assert.match(review, /do not demand production implementation or feature scenarios/);
   for (const doc of [readme, workflow]) assert.match(doc, /bounded spike/);
@@ -127,7 +144,7 @@ test("UI tickets describe pages, controls, actions and visible results in plans 
   assert.match(revise, /must only clarify its existing behavior, not add requirements/);
   assert.match(lane, /keep the Jira description concrete too/);
   assert.match(lane, /keep the description within 3 to 5 bullets/);
-  const web = read("./overlays/web.md");
+  const web = read("../overlays/web.md");
   assert.match(web, /UI ticket descriptions name the page or route/);
   assert.match(web, /Use meaningful UI actions when needed, not CSS selectors/);
   assert.doesNotMatch(web, /never selectors or clicks/);
@@ -153,7 +170,7 @@ test("UI planning captures supplied prototypes and links durable references in t
 });
 
 test("UI lanes read planning screenshots and compare results without asserting pixels", () => {
-  const web = read("./overlays/web.md");
+  const web = read("../overlays/web.md");
   assert.match(lane, /Before UI implementation, read the ticket's UI reference section/);
   assert.match(lane, /open its linked screenshots and manifest/);
   assert.match(lane, /Planning screenshots in `references\/ui\/` are required inputs/);
@@ -163,15 +180,25 @@ test("UI lanes read planning screenshots and compare results without asserting p
   assert.match(web, /do not assert it in tests/);
 });
 
-test("revise edits the plan directly and asks for approval only when its shape changes", () => {
+test("revise confirms unsettled decisions in chat without renewing plan approval", () => {
   assert.match(revise, /\$\{@:2\}/);
-  assert.match(revise, /\*\*No description:\*\* compare the plan with the code/);
-  assert.match(revise, /Default each finding to updating the appropriate planning file to match the code/);
+  assert.match(revise, /\*\*No description:\*\* audit coverage between the spec and tickets in both directions/);
+  assert.match(revise, /Map each spec goal, constraint and acceptance criterion to tickets/);
+  assert.match(revise, /Map each ticket outcome back to the spec/);
+  assert.match(revise, /Use the code only when needed to resolve a factual ambiguity/);
+  assert.match(revise, /Do not silently weaken the spec to match code/);
   assert.match(revise, /\*\*done or merged\*\* tickets: never change/);
   assert.match(revise, /No Gherkin or change tables/);
-  assert.match(revise, /Ask for approval only when the plan's shape changes/);
-  assert.match(revise, /gate \$1 2 pending/);
+  assert.match(revise, /Confirm decisions in chat/);
+  assert.match(revise, /Do not ask for a separate `\/dt-approve plan` after revising an approved feature/);
+  assert.match(revise, /Do not record a new G2 pending gate/);
+  assert.match(revise, /Do not silently clear an existing pending gate/);
+  assert.match(revise, /a clear requested change does not need another confirmation/);
+  assert.doesNotMatch(revise, /gate \$1 2 pending|Then record the plan as pending/);
   assert.match(revise, /work in flight continues/);
+  const session = read("../extensions/dt-session/index.ts");
+  assert.match(session, /Revisions to an approved feature do not require renewed plan approval/);
+  assert.doesNotMatch(session, /\/dt-approve plan for a new or revised plan/);
   assert.match(revise, /Do not write implementation code or run `dt\.mjs gate \.\.\. approve`/);
 });
 
@@ -193,13 +220,31 @@ test("lanes write their own scenarios and may change interfaces nobody else uses
   assert.doesNotMatch(lane, /Gherkin|frozen/);
   assert.match(lane, /Public interfaces may change when the code needs it/);
   assert.match(lane, /NEEDS INTERFACE CHANGE/);
-  assert.match(lane, /suggest `\/dt-revise <change>`/);
+  assert.match(lane, /ask the user about the change and coordinate affected work/);
   assert.match(lane, /T0\/T1 features are one ticket \(`00`\) built in the current checkout on a `quick\/<slug>` branch/);
   assert.match(lane, /sequence diagram of the skeleton path to the PR description/);
 });
 
+test("agents maintain planning files without requiring the revise command", () => {
+  assert.match(lane, /Update `spec.md` and editable ticket files directly during normal work/);
+  assert.match(lane, /Do not require a `\/dt-revise` invocation/);
+  assert.doesNotMatch(lane, /Never edit other tickets, the brief/);
+  assert.match(lane, /Never hand-edit progress.json/);
+  assert.match(lane, /Keep done and merged tickets unchanged/);
+  assert.match(review, /update editable planning files directly/);
+  assert.match(start, /normal work can update editable tickets and the spec directly/);
+  const session = read("../extensions/dt-session/index.ts");
+  assert.match(session, /Agents may update spec.md and editable ticket files directly/);
+  assert.match(session, /dt-revise is an optional spec\/ticket coverage audit/);
+  for (const doc of [readme, workflow]) {
+    assert.match(doc, /No `\/dt-revise` invocation is required/);
+    assert.match(doc, /coverage.*both directions/);
+  }
+  assert.doesNotMatch(workflow, /V -->[^\n]*P/);
+});
+
 test("verification uses saved summaries and optional artifacts, not per-feature folders", () => {
-  const web = read("./overlays/web.md"), cli = read("./overlays/cli.md");
+  const web = read("../overlays/web.md"), cli = read("../overlays/cli.md");
   assert.match(lane, /Save verification results, useful links, gaps and follow-ups as one-liners in progress.json/);
   assert.match(lane, /Do not create a per-feature `evidence\/` folder or separate verification logs by default/);
   assert.match(lane, /Save separate artifacts only when genuinely useful/);
@@ -216,7 +261,7 @@ test("verification uses saved summaries and optional artifacts, not per-feature 
 });
 
 test("necessary test and fixture maintenance does not require scope revision", () => {
-  const conventions = read("./AGENTS.md");
+  const conventions = read("../AGENTS.md");
   for (const doc of [lane, conventions]) {
     assert.match(doc, /Necessary tests, shared fixtures and test-only build wiring may be read and updated outside `touches`/);
     assert.match(doc, /Do not block or request `\/dt-revise` solely because these supporting files are outside `touches`/);
@@ -237,8 +282,11 @@ test("help shows one table for every tier, the T2 loop and plan revision", () =>
   assert.match(loop, /Repeat for each ready ticket/i);
   const changes = flow.split("### Changing the plan")[1]?.split("### Ticket picker")[0];
   assert.match(changes, /`\/dt-revise <change>`/);
-  assert.match(changes, /`\/dt-approve plan`\. New starts wait; work in flight continues/);
-  assert.match(changes, /Done and merged tickets are never reopened/);
+  assert.match(changes, /No renewed plan approval is required/);
+  assert.match(changes, /unsettled decisions in chat before editing/);
+  assert.doesNotMatch(changes, /New starts wait.*\/dt-approve|\/dt-approve plan.*New starts wait/);
+  assert.match(changes, /By default, done and merged tickets stay closed/);
+  assert.match(changes, /explicit ticket-start override can reopen them/);
   assert.match(flow, /checks every saved PR of each open ticket live on GitHub/);
   const table = flow.split("### Commands")[1]?.split("###")[0];
   assert.ok(table, "README must list every command in one table");
@@ -276,7 +324,7 @@ test("review checks the ticket outcome and keeps findings in chat", () => {
 });
 
 test("implementation and review keep shipped work independent of dev-turbo context", () => {
-  const conventions = read("./AGENTS.md");
+  const conventions = read("../AGENTS.md");
   assert.match(conventions, /Code, comments, test names, commit messages and PR titles\/bodies must stand on their own/);
   assert.match(conventions, /Never reference the dev-turbo plan, spec, tickets, slices or gates/);
   assert.match(conventions, /Workflow references belong only in dev-turbo planning artifacts, saved progress and command\/gate handovers/);
