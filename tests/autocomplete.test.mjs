@@ -42,6 +42,9 @@ test("selected project's current ticket files supply IDs, titles and next", asyn
 	assert.equal(await completeArguments("dt-status", "07 force", get, selected), null);
 	assert.deepEqual(values(await completeArguments("dt-lane", "", get, { ...selected, tier: "T1" })), ["00", "07"]);
 	assert.deepEqual(values(await completeArguments("dt-review", "0", get, selected)), ["00", "07"]);
+	assert.deepEqual(values(await completeArguments("dt-staging-test", "0", get, selected)), ["00", "07"]);
+	assert.equal(await completeArguments("dt-staging-test", "07 a", get, selected), null);
+	assert.equal(await completeArguments("dt-staging-test", "", get, null), null);
 	assert.equal(await completeArguments("dt-final-check", "0", get, selected), null);
 	assert.equal(await completeArguments("dt-final-check", "07 a", get, selected), null);
 	assert.equal(await completeArguments("dt-lane", "n", get, selected), null);

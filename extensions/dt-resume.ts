@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Box, Markdown } from "@earendil-works/pi-tui";
+import { Box, Container, Key, Markdown, matchesKey, SelectList, Text } from "@earendil-works/pi-tui";
 import { createModuleLoader } from "./dt-session/runtime.ts";
 import { pathToFileURL } from "node:url";
 
@@ -25,7 +25,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export default async function (pi: ExtensionAPI) {
 	const load = createModuleLoader(import.meta.url);
-	const { ENTRY, sessionCommand, validSlug } = await load("./dt-session/state.mjs");
+	const { ENTRY, restoreProject, sessionCommand, validSlug } = await load("./dt-session/state.mjs");
 	const { SCOPE, nextCommands, nextCommandText, namedText } = await load("./dt-session/gates.mjs");
 	pi.registerMessageRenderer(MESSAGE, (msg, { outputPad }, theme) => {
 		const box = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
@@ -68,10 +68,65 @@ export default async function (pi: ExtensionAPI) {
 					ctx.ui.notify(`Name the feature: /dt-resume <slug> (${features.map((f) => f.slug).join(", ")})`, "warning");
 					return;
 				}
-				const labels = features.map((f, i) => `${i + 1}. ${short(f.label, 110)}`);
-				const choice = await ctx.ui.select("Resume which feature?", labels);
-				if (!choice) return;
-				slug = features[labels.indexOf(choice)].slug;
+				while (!slug && features.length) {
+					const labels = features.map((f, i) => `${i + 1}. ${short(f.label, 110)}`);
+					// RPC clients retain the standard dialog; terminal input belongs to the custom picker.
+					if (ctx.mode !== "tui") {
+						const choice = await ctx.ui.select("Resume which feature?", labels);
+						if (!choice) return;
+						slug = features[labels.indexOf(choice)].slug;
+						break;
+					}
+					const choice = await ctx.ui.custom<{ slug: string; delete?: boolean } | undefined>((tui, theme, _keys, done) => {
+						const container = new Container();
+						container.addChild(new Text("Resume which feature?", 0, 0));
+						const list = new SelectList(features.map((f, i) => ({ value: f.slug, label: labels[i] })), Math.min(features.length, 10), {
+							selectedPrefix: (text) => theme.fg("accent", text),
+							selectedText: (text) => theme.fg("accent", text),
+							description: (text) => theme.fg("muted", text),
+							scrollInfo: (text) => theme.fg("dim", text),
+							noMatch: (text) => theme.fg("warning", text),
+						});
+						list.onSelect = (item) => done({ slug: item.value });
+						list.onCancel = () => done(undefined);
+						container.addChild(list);
+						container.addChild(new Text("↑↓ navigate • enter resume • ctrl+d delete • esc cancel", 0, 0));
+						return {
+							capturesViewportInput: list.capturesViewportInput,
+							render: (width) => container.render(width),
+							invalidate: () => container.invalidate(),
+							handleInput(data) {
+								if (matchesKey(data, Key.ctrl("d"))) {
+									const item = list.getSelectedItem();
+									if (item) done({ slug: item.value, delete: true });
+									return;
+								}
+								list.handleInput(data);
+								tui.requestRender();
+							},
+						};
+					}, { blocked: { kind: "question", message: "Resume which feature?" } });
+					if (!choice) return;
+					if (!choice.delete) { slug = choice.slug; break; }
+					try {
+						const info = await dt<{ key: string; featuresBase: string }>(ctx.cwd, ["info", "--json"]);
+						if (!await ctx.ui.confirm(`Delete feature "${choice.slug}"?`, `Permanently delete ${join(info.featuresBase, choice.slug)} and all its saved files, including tickets and progress? Branches, worktrees, PRs and issues will not be deleted. Claimed tickets prevent deletion.`)) continue;
+						if (!ctx.isIdle()) throw new Error("Wait for the current task to finish before deleting a feature.");
+						const logic = await load(pathToFileURL(DT).href);
+						logic.deleteFeature(info, choice.slug);
+						const selected = restoreProject(ctx.sessionManager.getBranch(), info);
+						if (selected?.slug === choice.slug) {
+							pi.appendEntry(ENTRY, null);
+							pi.appendEntry(SCOPE, null);
+							pi.events.emit("dt:project:select", { project: null, repo: info, ctx });
+						}
+						features = features.filter((f) => f.slug !== choice.slug);
+						ctx.ui.notify(`Deleted feature: ${choice.slug}`, "info");
+					} catch (e) {
+						ctx.ui.notify(`dt-resume: ${message(e)}`, "error");
+					}
+				}
+				if (!slug) return;
 			}
 
 			// Selecting a valid local feature must not depend on GitHub or an event acknowledgement.

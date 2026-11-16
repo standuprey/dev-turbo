@@ -30,6 +30,8 @@ mkdir -p "$EXTENSIONS/dt-session"
 cp "$KIT"/extensions/dt-session/index.ts "$KIT"/extensions/dt-session/branch.mjs "$KIT"/extensions/dt-session/state.mjs "$KIT"/extensions/dt-session/lane-picker.mjs "$KIT"/extensions/dt-session/ticket-preview.mjs "$KIT"/extensions/dt-session/ticket-screenshots.mjs "$KIT"/extensions/dt-session/footer.mjs "$KIT"/extensions/dt-session/gates.mjs "$KIT"/extensions/dt-session/approval-guard.mjs "$KIT"/extensions/dt-session/runtime.ts "$KIT"/extensions/dt-session/exec-json.mjs "$EXTENSIONS/dt-session"/
 mkdir -p "$EXTENSIONS/dt-status"
 cp "$KIT"/extensions/dt-status/index.ts "$KIT"/extensions/dt-status/status.mjs "$EXTENSIONS/dt-status"/
+mkdir -p "$EXTENSIONS/dt-slice-plan"
+cp "$KIT"/extensions/dt-slice-plan/index.ts "$KIT"/extensions/dt-slice-plan/plan.mjs "$EXTENSIONS/dt-slice-plan"/
 mkdir -p "$EXTENSIONS/dt-approve"
 cp "$KIT"/extensions/dt-approve/index.ts "$EXTENSIONS/dt-approve"/
 if [ ! -f "$DT/config.json" ]; then
@@ -37,6 +39,6 @@ if [ ! -f "$DT/config.json" ]; then
   echo "created $DT/config.json - set each repository's checks command"
 fi
 node "$DT/dt.mjs" selftest
-echo "installed $(ls "$KIT"/prompts/dt-*.md | wc -l | tr -d ' ') prompts -> $PROMPTS; dt.mjs + docs + overlays -> $DT; help + status + approve + resume + session + autocomplete -> $EXTENSIONS"
+echo "installed $(ls "$KIT"/prompts/dt-*.md | wc -l | tr -d ' ') prompts -> $PROMPTS; dt.mjs + docs + overlays -> $DT; help + status + slice-plan + approve + resume + session + autocomplete -> $EXTENSIONS"
 command -v gh >/dev/null || echo "note: gh is not installed; issues, PRs and review comments will not work"
 echo "now: /reload in pi, then /dt-help for the flow, /dt-start <task> to start, or /dt-resume to pick up a feature"

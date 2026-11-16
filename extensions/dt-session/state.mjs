@@ -1,6 +1,6 @@
 export const ENTRY = "dt-project";
 export const TYPES = ["web", "device", "service", "cli", "mixed"];
-export const COMMANDS = new Set(["dt-lane", "dt-review", "dt-revise"]);
+export const COMMANDS = new Set(["dt-lane", "dt-review", "dt-revise", "dt-staging-test"]);
 // Retired commands point to their replacement instead of reaching the model as unknown prompts.
 export const RETIRED = { "dt-spec": "/dt-revise", "dt-slice": "/dt-revise", "dt-amend": "/dt-revise <change>", "dt-drift": "/dt-revise", "dt-quick": "/dt-lane" };
 export const validSlug = (slug) => typeof slug === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
@@ -31,6 +31,9 @@ export function resolveCommand(text, project) {
 	if (command === "dt-review" && /\s/.test(args) && !/^\S+\s+autofix$/.test(args)) {
 		throw new Error("Usage: /dt-review [ticket ID | branch] [autofix]. Switch projects with /dt-resume.");
 	}
+	if (command === "dt-staging-test" && args && !/^\d{1,2}$/.test(args)) {
+		throw new Error("Usage: /dt-staging-test [ticket ID]. Switch projects with /dt-resume.");
+	}
 	return `/${command} ${project.slug}${args ? " " + args : ""}`;
 }
 
@@ -41,6 +44,6 @@ export function sessionCommand(text, slug) {
 		.replace(/\/dt-approve ticket(?=\s|$)/g, "/dt-check-merged")
 		.replace(new RegExp(`/dt-(?:spec|slice|amend|drift)(?: ${slug})?(?: (?:web|device|service|cli|mixed|apply))?(?=\\s|$)`, "g"), "/dt-revise")
 		.replace(/\/dt-approve (?:architecture|slices|scope)(?=\s|$)/g, "/dt-approve plan")
-		.replace(new RegExp(`(/dt-(?:revise|lane|review|status)) ${slug}(?=\\s|$)`, "g"), "$1")
+		.replace(new RegExp(`(/dt-(?:revise|lane|review|status|staging-test)) ${slug}(?=\\s|$)`, "g"), "$1")
 		.replace(/\/dt-lane next(?=\s|$)/g, "/dt-lane").trim();
 }

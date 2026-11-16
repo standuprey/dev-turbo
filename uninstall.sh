@@ -17,7 +17,7 @@ PROMPTS="$PI/prompts"
 DT="$PI/dt"
 
 rm -f "$PROMPTS"/dt-*.md "$DT"/dt.mjs "$DT"/AGENTS.md "$DT"/README.md "$PI"/extensions/dt-resume.ts "$PI"/extensions/dt-help.ts
-rm -rf "$DT"/overlays "$PI"/extensions/dt-autocomplete "$PI"/extensions/dt-session "$PI"/extensions/dt-status "$PI"/extensions/dt-approve
+rm -rf "$DT"/overlays "$PI"/extensions/dt-autocomplete "$PI"/extensions/dt-session "$PI"/extensions/dt-status "$PI"/extensions/dt-slice-plan "$PI"/extensions/dt-approve
 echo "removed dt-* prompts, dt.mjs, installed docs, overlays and the dev-turbo extensions"
 if [ "${1:-}" = "--purge" ]; then
   echo "this will delete $DT (including config.json and features/):"

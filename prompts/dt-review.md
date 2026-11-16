@@ -13,7 +13,7 @@ Review the code and architecture and suggest concrete improvements. Spend effort
 
 Run the three axes one after another; label each actual finding by axis. Report defects and worthwhile improvements with a specific location, consequence and fix. Do not invent findings to fill an axis, demand tests for every defensive branch, or treat missing screenshots, staging access, remote CI/RBE, reviewer approval or other acceptance evidence as code defects. Preserve those prerequisites in saved progress; they do not determine the code-review verdict. Flag an unsafe rollout or broken behavior only when the code demonstrates the risk.
 
-Run focused checks when they help resolve a code question. Do not rerun broad suites just to decorate the review with test counts.
+Run focused checks when they help resolve a code question. Do not rerun broad suites just to decorate the review with test counts. Aim for a small essential regression suite, not 100% test coverage or a coverage percentage target. Ask for additional tests only when a changed behavior, fixed bug or concrete high-risk failure lacks protection; do not request duplicate coverage across layers or tests for every helper. Preserve existing assertions and required repository checks.
 
 For a spike (a ticket with an Investigation section), review the findings against its question, experiment, effort limit and Done when: evidence supports the recommendation, alternatives and trade-offs are clear, and remaining uncertainty is explicit. A negative or inconclusive result can satisfy the ticket; do not demand production implementation or feature scenarios. Review retained experiment code normally and flag throwaway prototypes shipped into production.
 

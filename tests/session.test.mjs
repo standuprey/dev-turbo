@@ -54,6 +54,16 @@ test("selected project supplies slug, task type and default ticket", () => {
 	assert.equal(resolveCommand("/dt-status", project), null); // Handled directly by its extension.
 });
 
+test("staging tests take the selected slug and an optional ticket ID", () => {
+	assert.equal(resolveCommand("/dt-staging-test", project), "/dt-staging-test checkout");
+	assert.equal(resolveCommand("/dt-staging-test 7", project), "/dt-staging-test checkout 7");
+	assert.equal(resolveCommand("/dt-staging-test checkout 07", project), "/dt-staging-test checkout 07");
+	assert.throws(() => resolveCommand("/dt-staging-test 07 now", project), /Usage: \/dt-staging-test/);
+	assert.throws(() => resolveCommand("/dt-staging-test my-branch", project), /Usage: \/dt-staging-test/);
+	assert.throws(() => resolveCommand("/dt-staging-test 07", null), /No dev-turbo project selected/);
+	assert.equal(sessionCommand("Next: /dt-staging-test checkout 07", project.slug), "Next: /dt-staging-test 07");
+});
+
 test("revise keeps the selected project and the full change description", () => {
 	const before = JSON.stringify(project);
 	assert.throws(() => resolveCommand("/dt-revise isolate v1", null), /No dev-turbo project selected/);

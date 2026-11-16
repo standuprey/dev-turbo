@@ -67,12 +67,20 @@ Ticket starts report policy conflicts as warnings. Selecting Start anyway, `/dt-
 
 Ticket progress stores no historical lane assignment. `claim.checkout` protects active work; an optional `worktree` path persists for resume and cleanup.
 
+## Remaining slices
+
+`/dt-slice-plan` reads the selected project and lists remaining ticket IDs in parallel batches. It excludes done tickets and tickets whose saved PRs are all merged (unless reopened). In-progress and review tickets remain. Dependencies must finish in earlier batches; either direction of `unsafe_with` keeps tickets in separate batches. Shared `touches` do not split the display plan, but shared-module start guards still apply when actually starting work. Numeric ID order makes the greedy batches deterministic, without imposing a lane limit. This is a read-only projection, not permission to start work; missing dependencies and cycles are reported explicitly.
+
+## Staging tests
+
+`/dt-staging-test [id]` claims the ticket, writes a script and runbook under `<feature>/staging-tests/<id>/`, and stops for your review. It runs only the confirmed script version. A pass replaces the PR's Testing bullets with the checks that passed; a failure is fixed and goes back to review. It prefers an isolated preview or sandbox environment when the project offers one. Releases, DDL and production access stay with you.
+
 ## PR bodies
 
 Use the format in [AGENTS.md](AGENTS.md):
 - A few short change bullets under `## Description`. Simple words, no filler or fixed bullet count.
 - A sequencing line only when named PRs really must merge first.
-- `## Testing` starts with `unit tests + staging tests`, followed by one suggested staging check.
+- `## Testing` starts with `unit tests + staging tests`, followed by one suggested staging check, or by the checks that passed after `/dt-staging-test`.
 - Actual curl/browser checks may be simple bullets. Test implementation and unfinished work stay out of the description.
 - Save pending checks in progress.json. Do not overwrite a description the user has edited.
 

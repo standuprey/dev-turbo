@@ -49,7 +49,8 @@ let DRY = false;
 // ---------- shell ----------
 function sh(cmd, args, o = {}) {
   try {
-    return execFileSync(cmd, args, { encoding: "utf8", cwd: o.cwd, stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const output = execFileSync(cmd, args, { encoding: "utf8", cwd: o.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    return o.raw ? output : output.trim();
   } catch (e) {
     if (o.soft) return null;
     const err = (e.stderr || e.message || "").toString().trim().split("\n").slice(-2).join(" ");
@@ -222,6 +223,17 @@ function updateProgress(ctx, slug, mutate, { touch = true } = {}) {
     if (touch) prog.updated = now();
     writeJson(p.progress, compactProgress(prog));
     return prog;
+  });
+}
+
+/** Removes saved feature files only; repository checkouts, branches and remote records are untouched. */
+export function deleteFeature(ctx, slug) {
+  const p = mustFeature(ctx, slug);
+  if (!fs.lstatSync(p.dir).isDirectory() || fs.lstatSync(p.dir).isSymbolicLink()) fail("Feature folder must be a real directory, not a symlink.");
+  return withLock(p.progress, () => {
+    const prog = loadProgress(ctx, slug);
+    if (Object.values(prog.tickets).some((t) => t.claim)) fail("Cannot delete a feature with claimed tickets. Release its claims first.");
+    fs.rmSync(p.dir, { recursive: true });
   });
 }
 
@@ -675,7 +687,33 @@ function describe(ctx, slug, t, where) {
 function dirty(ctx) {
   const rel = path.relative(ctx.root, ctx.featuresBase);
   const exclude = rel && !rel.startsWith("..") ? [`:(exclude)${rel}`] : [];
-  return git(["status", "--porcelain", "--", ".", ...exclude], { cwd: ctx.root });
+  // NUL separators preserve spaces, newlines and rename paths without terminal escapes.
+  return git(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", ...exclude], { cwd: ctx.root, raw: true });
+}
+
+function dirtyWarning(ctx, status) {
+  const records = status.split("\0"), changes = [];
+  let staged = 0, unstaged = 0, untracked = 0, conflicted = 0;
+  const quote = (value) => JSON.stringify(value.length > 200 ? `${value.slice(0, 197)}…` : value).replace(/\x7f/g, "\\u007f");
+  for (let i = 0; i < records.length; i++) {
+    if (!records[i]) continue;
+    const xy = records[i].slice(0, 2), destination = records[i].slice(3);
+    const source = /[RC]/.test(xy) ? records[++i] : null;
+    if (xy === "??") untracked++;
+    else if (["DD", "AU", "UD", "UA", "DU", "AA", "UU"].includes(xy)) conflicted++;
+    else {
+      if (xy[0] !== " ") staged++;
+      if (xy[1] !== " ") unstaged++;
+    }
+    changes.push(`${xy} ${source === null ? quote(destination) : `${quote(source)} -> ${quote(destination)}`}`);
+  }
+  return ["working tree is not clean",
+    `  checkout: ${quote(ctx.root)} · branch: ${quote(ctx.branch || "(detached HEAD)")}`,
+    `  ${changes.length} changed paths: ${staged} staged, ${unstaged} unstaged, ${untracked} untracked, ${conflicted} conflicted (staged/unstaged can overlap)`,
+    ...changes.slice(0, 10).map((change) => `  ${change}`),
+    ...(changes.length > 10 ? [`  … ${changes.length - 10} more paths`] : []),
+    "  Inspect all paths: git status --short; unstaged: git diff; staged: git diff --cached.",
+  ].join("\n");
 }
 
 function assertClaim(saved, owner) {
@@ -695,6 +733,7 @@ function cmdNext(ctx, slug) {
   const checkoutDirty = () => dirtySnapshot ??= dirty(ctx);
   const enforce = (condition, message) => {
     if (!condition) return;
+    if (message === "working tree is not clean") message = dirtyWarning(ctx, checkoutDirty());
     if (!override && !checking) fail(message + "; use an explicit --override to start anyway");
     warnings.add(message);
   };

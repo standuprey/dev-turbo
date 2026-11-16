@@ -16,7 +16,7 @@ test("only four workflow prompts remain; removed prompts are cleaned up on insta
   }
   const install = read("../install.sh");
   for (const name of ["dt-spec", "dt-slice", "dt-amend", "dt-drift", "dt-quick", "dt-final-check"]) assert.match(install, new RegExp(`\\b${name}\\b`));
-  for (const doc of [readme, workflow, start, revise, lane, review]) assert.doesNotMatch(doc, /\/dt-(?:spec|slice|amend|drift|quick|show)\b(?![^\n]*print their replacement)/);
+  for (const doc of [readme, workflow, start, revise, lane, review]) assert.doesNotMatch(doc, /\/dt-(?:spec|slice|amend|drift|quick|show)(?![\w-])(?![^\n]*print their replacement)/);
 });
 
 test("workflow prompts and docs describe worktrees and GitHub issues, without Jira or lane clones", () => {
@@ -221,8 +221,19 @@ test("Pi runtime: revise expands the complete description after the selected slu
   }
 });
 
+test("planning, implementation and review ask for essential regression tests, not exhaustive coverage", () => {
+  const agents = read("../AGENTS.md");
+  for (const doc of [start, lane, review, agents, readme]) {
+    assert.match(doc, /essential regression suite/);
+    assert.match(doc, /not 100% test coverage or a coverage percentage target/);
+    assert.match(doc, /required repository checks/);
+  }
+  assert.match(lane, /do not duplicate the same assertion across unit, integration and end-to-end layers/);
+  assert.match(lane, /not permission to weaken tests or skip safety-critical cases/);
+});
+
 test("lanes write their own scenarios and may change interfaces nobody else uses yet", () => {
-  assert.match(lane, /Write executable scenarios for the ticket's Outcome and Done when/);
+  assert.match(lane, /smallest set of essential regression scenarios for the changed Outcome and Done when/);
   assert.doesNotMatch(lane, /Gherkin|frozen/);
   assert.match(lane, /Public interfaces may change when the code needs it/);
   assert.match(lane, /NEEDS INTERFACE CHANGE/);
@@ -341,4 +352,33 @@ test("implementation and review keep shipped work independent of dev-turbo conte
   assert.match(start, /Plan files stand on their own: never mention the grill/);
   assert.match(review, /Flag references to the dev-turbo plan, spec, tickets, slices or gates in shipped code/);
   assert.match(review, /do not assume readers know the workflow/);
+});
+
+test("staging tests generate a reviewed script, run it only after confirmation and record passes in the PR", () => {
+  const staging = read("../prompts/dt-staging-test.md");
+  for (const step of ["## 1. Generate", "## 2. Review and confirmation", "## 3. Run", "## 4. Record"]) assert.ok(staging.includes(step), step);
+  assert.ok(staging.indexOf("## 1. Generate") < staging.indexOf("## 2. Review") && staging.indexOf("## 2. Review") < staging.indexOf("## 3. Run"));
+  assert.match(staging, /dt\.mjs next \$1 --ticket <id> --owner <session-owner>/);
+  assert.match(staging, /staging-tests\/<id>\/staging-test\.sh/);
+  assert.match(staging, /Mutations require `--execute`/);
+  assert.match(staging, /STOP until they explicitly confirm that version/);
+  assert.match(staging, /Recheck the SHA-256; if the file changed, return to step 2/);
+  assert.match(staging, /Never run the script against staging during generation/);
+  assert.match(staging, /never modifies or deletes existing data/);
+  assert.match(staging, /Replace only the content of `## Testing`/);
+  assert.match(staging, /No commands, counts, IDs, paths, SHAs or evidence folders/);
+  assert.match(staging, /Leave the PR description unchanged/);
+  assert.match(staging, /Do not weaken assertions to make it pass/);
+  assert.match(staging, /never authorizes production access, schema changes or other DDL/);
+  assert.match(staging, /--release-claim/);
+  assert.match(read("../AGENTS.md"), /After a passed `\/dt-staging-test`/);
+  const table = flow.split("### Commands")[1]?.split("###")[0];
+  assert.ok(table.includes("| `/dt-staging-test [id]`"));
+  assert.match(workflow, /## Staging tests/);
+});
+
+test("generic staging tests stay independent of Atoms infrastructure", () => {
+  const staging = read("../prompts/dt-staging-test.md");
+  assert.match(staging, /Prefer an isolated preview or sandbox environment/);
+  assert.doesNotMatch(staging, /ottergate|kubectl|aks-|Jira|monorepo|css /i);
 });

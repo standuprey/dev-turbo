@@ -20,4 +20,9 @@ test("install replaces the old start command while preserving user data", async 
 	assert.equal(await readFile(join(dir, "extensions", "dt-session", "ticket-screenshots.mjs"), "utf8"), await readFile(new URL("../extensions/dt-session/ticket-screenshots.mjs", import.meta.url), "utf8"));
 	assert.equal(await readFile(join(dir, "dt", "config.json"), "utf8"), "{}");
 	assert.equal(await readFile(join(dir, "dt", "features", "saved.md"), "utf8"), "Saved feature");
+	for (const file of ["index.ts", "plan.mjs"]) assert.equal(await readFile(join(dir, "extensions", "dt-slice-plan", file), "utf8"), await readFile(new URL(`../extensions/dt-slice-plan/${file}`, import.meta.url), "utf8"));
+	execFileSync("bash", [join(import.meta.dirname, "../uninstall.sh")], { env: { ...process.env, PI_AGENT_DIR: dir } });
+	await assert.rejects(access(join(dir, "extensions", "dt-slice-plan")), { code: "ENOENT" });
+	assert.equal(await readFile(join(dir, "dt", "config.json"), "utf8"), "{}");
+	assert.equal(await readFile(join(dir, "dt", "features", "saved.md"), "utf8"), "Saved feature");
 });

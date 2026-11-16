@@ -77,6 +77,10 @@ The spec answers **what and why** and keeps the shared module map; tickets answe
 
 Do not include slices, ticket lists or IDs, ticket/lane ownership, ticket dependency tables, implementation steps or landing order in `spec.md`; those belong in tickets. Keep the spec independent of the ticket breakdown: splitting or reordering tickets does not change the map. Update the map when module names, paths, responsibilities or module dependencies change.
 
+### Testing scope
+
+Plan a small essential regression suite, not 100% test coverage or a coverage percentage target. Done when describes observable acceptance, not a requirement to automate every criterion. Reuse existing coverage and name only the critical changed paths, fixed bugs and concrete high-risk failures that need regression tests. Avoid exhaustive test matrices and duplicate coverage across layers; preserve required repository checks and safety-critical tests.
+
 ### Tickets: `tickets/NN-short-name.md`
 
 T0/T1: exactly one ticket, `00`. T2: the building blocks cut into a handful of tickets (usually 3-8). Prefer fewer, larger tickets over many small ones.

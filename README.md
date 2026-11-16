@@ -26,8 +26,10 @@ Start with `/dt-start <task>`. After the grill, it asks you to choose a tier and
 | `/dt-lane [id [force\|override]]` | Open the ticket picker, or start/resume one ticket: scenarios red, TDD green, verify, PR. T0/T1 build ticket 00 in the current checkout on `quick/<slug>`. `force` takes over a claim in its saved checkout; `override` accepts all start-policy warnings. |
 | `/dt-review [id \| branch] [autofix]` | Review in chat before merge; offer to fix selected findings. Re-review is optional. |
 | `/dt-check-merged` | After you merge, check every open ticket's PRs on GitHub, report their states and close each ticket whose PRs are all merged. |
+| `/dt-staging-test [id]` | Generate a staging test script and runbook for a ticket PR, wait for your review, run it, then record passed checks in the PR. |
 | `/dt-revise [change]` | Optionally request a plan edit, or without arguments audit spec/ticket coverage in both directions. |
 | `/dt-status [id]` | Show the saved board, or one full ticket and its saved progress. No model call. |
+| `/dt-slice-plan` | Show remaining parallel batches and their ticket IDs. No model call. |
 | `/dt-resume [slug]` | Select or switch projects and show where one stands. |
 | `/dt-help` | Show this command flow. No model call. |
 
@@ -88,11 +90,25 @@ Claims do not expire on a timer. A final save with `--release-claim`, or normal 
 
 The session context supplies `--owner <session-ID>` for `dt.mjs next`, ticket progress updates and `pr`. CLI users must supply their own stable owner ID. Reload existing sessions when idle; do not interrupt an agent mid-command.
 
+### Remaining slices
+
+`/dt-slice-plan` shows `Slice 1: 07 (ticket/demo-07), 42` followed by each later batch for the selected project. Ticket branches appear in parentheses when saved in progress; tickets without a saved branch show only their ID. It reads saved tickets and progress only: no model call, remote refresh, claims or project-file changes. Tickets recorded done or with all saved PRs merged are excluded, except reopened work still needs new merges. In-progress and review tickets remain in the plan.
+
+Each batch uses `blocked_by` and symmetric `unsafe_with` conflicts; shared `touches` do not split the display plan. Dependencies must finish in earlier batches. Tickets are considered in numeric ID order, greedily filling each batch; this is deterministic, not necessarily the shortest possible schedule. Batch size is not limited by available lanes. Shared-module start guards, saved blockers, approval gates and claims still apply when actually starting work. Missing dependencies or cycles are reported with the unscheduled ticket IDs, not silently ignored. Old written slice assignments may differ when ticket fields or merge states change.
+
 ### UI references
 
 For UI work in any tier, including mixed UI/backend tickets, `/dt-start` inspects supplied prototypes during the grill and settles whether their appearance and behavior are authoritative or illustrative. It saves relevant screenshots under `<feature>/references/ui/` with `references/ui/manifest.md` recording source URLs, screen/states, viewports, capture dates, reproduction steps and agreed differences. Each UI ticket embeds relative screenshot links and names its source and relevant states. `/dt-status <id>` ends the complete ticket and saved progress with only `Reference screenshots: file:///tmp/dt-ticket-<id>-images-…/`; it does not append inline images, individual image URLs or screenshot labels. The private temporary folder contains copies of all readable, supported references, numbered in reference order with duplicate files exported once. Inline and reference-style image links resolve relative to the ticket and must stay inside the feature directory (including symlink targets); no remote image is fetched. Missing or rejected images produce warning notifications without hiding the ticket. PNG, JPEG, GIF and WebP captures are supported, up to 10 MiB per image and 32 MiB per ticket. Each invocation exports validated image bytes into a fresh folder; folders remain until manually removed or cleared by the system, and project state is unchanged. Lane confirmation stays summary-only. If capture is blocked or no reference is supplied, the user must provide screenshots or explicitly waive the missing coverage; the agent cannot silently skip it.
 
 Direct planning edits and optional `/dt-revise` apply the same rules to added or updated UI tickets and can backfill references in existing plans without changing settled scope. Done and merged tickets stay unchanged. `/dt-lane` reads the captures before implementation, and browser verification compares the result against them; visual acceptance remains human-owned. These durable planning inputs are separate from optional verification artifacts and must be preserved. This is prompt-guided behavior, not an automatic CLI screenshot validator.
+
+### Testing scope
+
+Aim for a small essential regression suite, not 100% test coverage or a coverage percentage target. Reuse existing tests; add protection for changed behavior, fixed bugs and concrete high-risk failures at the most useful boundary. Avoid exhaustive edge-case matrices and duplicate coverage across layers. Keep red/green development focused on these tests and run affected checks; broader suites are for shared changes or concrete regression risks. Preserve existing assertions, safety-critical tests and required repository checks.
+
+### Staging tests
+
+`/dt-staging-test [id]` writes `staging-test.sh` and a short runbook under `<feature>/staging-tests/<id>/`, from the ticket and read-only staging inspection. It shows the target, the data it will create and the exact command, then waits for you to confirm that script version. After a confirmed run passes, it replaces the PR's `## Testing` bullets with the staging checks that passed. A failure leaves the PR unchanged: test defects are fixed and reviewed again, product defects are fixed on the ticket branch with your agreement, and missing prerequisites stop the loop. It prefers an isolated preview or sandbox environment when the project offers one. It never runs DDL, deploys shared environments, touches production or deletes data.
 
 ### Verification records
 
@@ -162,6 +178,7 @@ Keep PRs short: a few plain change bullets under `## Description`, then `## Test
 
 ## Day to day
 - `/dt-help` displays the workflow guide directly, without a model call, repository lookup or state changes.
+- `/dt-resume` opens a feature picker. In the terminal, Ctrl+D deletes the highlighted feature after a confirmation dialog. Deletion removes its saved folder, including tickets and progress, but leaves branches, worktrees, PRs and issues untouched. Features with claimed tickets cannot be deleted; deleting the selected feature clears the session selection.
 - `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` and `/dt-status ` suggest that project's ticket IDs; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-approve ` suggests `plan` when one is pending. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
 - New session: open pi in the repository (or a lane) and run `/dt-resume`. Pick a feature; it posts a short brief (phase, gates, board, in-flight tickets with PRs, verification, todo, next step) and lists next commands without a follow-up picker.
 - Commit and push T2 ticket files to the main branch, then run `/dt-lane` from the main checkout and choose a ready ticket. After selection, it creates `../<repo>.lane-<id>` and tells you to open pi there; run `/dt-lane <id>` there to resume. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).

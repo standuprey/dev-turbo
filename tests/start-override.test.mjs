@@ -59,7 +59,7 @@ test("ticket starts share one git status snapshot per command, including clean r
   fs.writeFileSync(path.join(f.main, "dirty.txt"), "keep");
   const dirty = check("--check-only", "--json");
   assert.equal(dirty.status, 0, dirty.stderr);
-  assert.ok(JSON.parse(dirty.stdout).warnings.includes("working tree is not clean"), "a new command must not reuse the previous clean snapshot");
+  assert.match(JSON.parse(dirty.stdout).warnings.join("\n"), /working tree is not clean[\s\S]*1 untracked[\s\S]*\?\? "dirty.txt"/, "a new command must not reuse the previous clean snapshot");
   assert.notEqual(check().status, 0);
   assert.equal(fs.readFileSync(f.progressFile, "utf8"), before);
   fs.unlinkSync(path.join(f.main, "dirty.txt"));
@@ -67,6 +67,36 @@ test("ticket starts share one git status snapshot per command, including clean r
   assert.equal(started.status, 0, started.stderr);
   assert.equal(f.progress().tickets["01"].branch, "ticket/demo-01");
   assert.ok(fs.existsSync(f.wt("01")));
+});
+
+test("dirty start warnings show checkout, change counts and a bounded path list without changing files", (t) => {
+  const f = fixture(t), root = f.main;
+  for (const name of ["staged.txt", "unstaged.txt", "old name.txt"]) fs.writeFileSync(path.join(root, name), "original\n");
+  f.git(root, "add", ".");
+  f.git(root, "commit", "-m", "files");
+  fs.writeFileSync(path.join(root, "staged.txt"), "staged\n");
+  f.git(root, "add", "staged.txt");
+  fs.writeFileSync(path.join(root, "staged.txt"), "unstaged too\n");
+  fs.writeFileSync(path.join(root, "unstaged.txt"), "unstaged\n");
+  f.git(root, "mv", "old name.txt", "new name.txt");
+  for (let i = 0; i < 12; i++) fs.writeFileSync(path.join(root, `z-${i}.txt`), "keep\n");
+  fs.writeFileSync(path.join(root, "z-escape\n\x1b.txt"), "keep\n");
+  fs.writeFileSync(path.join(f.feature, "local-notes.md"), "workflow notes\n");
+  const before = fs.readFileSync(f.progressFile, "utf8");
+  const warning = JSON.parse(f.ok(f.main, "next", "demo", "--ticket", "01", "--owner", "here", "--check-only", "--json").stdout).warnings.join("\n");
+  assert.ok(warning.includes(root));
+  assert.match(warning, /branch: "main"/);
+  assert.match(warning, /16 changed paths.*2 staged.*2 unstaged.*13 untracked.*0 conflicted/);
+  assert.match(warning, /R  "old name.txt" -> "new name.txt"/);
+  assert.match(warning, /MM "staged.txt"/);
+  assert.match(warning, / M "unstaged.txt"/);
+  assert.match(warning, /6 more paths/);
+  assert.match(warning, /git status --short/);
+  assert.match(warning, /git diff --cached/);
+  assert.doesNotMatch(warning, /\x1b/);
+  assert.equal(fs.readFileSync(f.progressFile, "utf8"), before);
+  assert.equal(fs.readFileSync(path.join(root, "staged.txt"), "utf8"), "unstaged too\n");
+  assert.match(f.dt(f.main, "next", "demo", "--ticket", "01", "--owner", "here").stderr, /16 changed paths/);
 });
 
 test("start preflight is read-only and reports every dependency, overlap, unsafe and saved-plan warning", (t) => {

@@ -187,6 +187,8 @@ export default async function (pi: ExtensionAPI) {
 				if (ctx.sessionManager.getSessionId() !== session || project?.scopeId !== selectedProject.scopeId || project?.slug !== selectedProject.slug || project?.key !== selectedProject.key || project?.base !== selectedProject.base) throw new Error("Project changed during confirmation. Run /dt-lane again.");
 				laneProjects.add(selectedProject.slug);
 			}
+			// Staging tests claim the ticket too; release that claim if the session ends.
+			if (project && text?.startsWith(`/dt-staging-test ${project.slug}`)) laneProjects.add(project.slug);
 			return text ? { action: "transform", text, images: event.images } : { action: "continue" };
 		} catch (e) {
 			ctx.ui.notify(e instanceof Error ? e.message : String(e), "warning");

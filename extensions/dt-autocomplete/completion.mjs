@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const COMMANDS = new Set(["dt-resume", "dt-lane", "dt-status", "dt-review"]);
+const COMMANDS = new Set(["dt-resume", "dt-lane", "dt-status", "dt-review", "dt-staging-test"]);
 const VALID_SLUG = /^[\w][\w.-]*$/;
 const safeSlug = (slug) => VALID_SLUG.test(slug) && !slug.includes("..");
 

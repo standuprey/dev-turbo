@@ -51,10 +51,13 @@ Write the short findings document at the repository path named by the ticket, wi
 
 Do not choose an unresolved product decision or implement dependent work. After the findings are reviewed, update the editable planning files directly when the approach is settled; otherwise ask about the unresolved decision and save it in `--todo`. By default, dependent tickets remain blocked until the spike is closed and their unresolved approach is settled. An explicit start override can bypass that dependency warning, but it does not supply missing product decisions or justify inventing behavior.
 
+## Testing scope
+Keep testing light: aim for a small essential regression suite, not 100% test coverage or a coverage percentage target. Reuse existing tests and add only what protects the changed behavior, reproduces a fixed bug, or guards a concrete high-risk failure (for example data loss, permissions or backward compatibility). Test at the most useful boundary; do not duplicate the same assertion across unit, integration and end-to-end layers or add tests for every helper, defensive branch or theoretical edge case. Red/green development applies to these essential tests, not an exhaustive suite. Run affected checks; reserve broader suites for shared changes or concrete regression risks. Preserve existing assertions and required repository checks; this is not permission to weaken tests or skip safety-critical cases.
+
 ## Loop
 For implementation tickets:
-1. Write executable scenarios for the ticket's Outcome and Done when, in the repo's native location (one per behavior, not per file). Run them: they must fail for the right reason. Save state.
-2. TDD inside the module until the scenarios are green. Save state.
+1. Reuse or add the smallest set of essential regression scenarios for the changed Outcome and Done when, in the repo's native location. New or updated tests must fail for the right reason before implementation; do not add duplicate tests at multiple layers. Save state.
+2. TDD inside the module until these essential scenarios are green; stop adding tests once the concrete regression risks are covered. Save state.
 3. Verify per overlay (browser, device or build target). Save a short result and any useful links with `--verification`.
 4. Run the `checks` command for the touched modules only.
 5. Small commits; push the branch.
