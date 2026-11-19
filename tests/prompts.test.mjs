@@ -28,11 +28,31 @@ test("workflow prompts and docs describe worktrees and GitHub issues, without Ji
   assert.match(workflow, /worktrees `\.\.\/<repo>\.lane-<id>`/);
 });
 
+test("ticket line limits use net growth across the full diff, not churn", () => {
+  for (const doc of [start, lane, review, revise, read("../AGENTS.md")]) {
+    assert.match(doc, /`added lines - removed lines`/);
+    assert.match(doc, /across all files in the full ticket diff against the merge base with its PR base branch/);
+    assert.match(doc, /Never use `added lines \+ removed lines`, an absolute value or per-commit churn/);
+    assert.match(doc, /negative counts stay negative/);
+  }
+  assert.match(read("../AGENTS.md"), /900 added lines and 800 removed lines count as 100, not 1700/);
+});
+
 test("the grill waits for the user's tier choice after a short summary", () => {
   assert.match(start, /summarize the task in at most 3 short sentences/);
   assert.match(start, /Which tier do you want: T0, T1 or T2\?/);
-  for (const tier of ["T0", "T1", "T2"]) assert.ok(start.includes(`| ${tier} |`));
-  assert.match(start, /Explain the workflow differences, not which tier you think fits the task/);
+  const tierExplanation = start.split("## Closing: choose the tier")[1].split("Ask:")[0];
+  assert.match(tierExplanation, /Before asking for a tier choice/);
+  assert.match(tierExplanation, /in 2-5 short bullet points/);
+  assert.match(tierExplanation, /including when asking again after a scope change/);
+  const tierBullets = tierExplanation.match(/^- \*\*T[012]:\*\*.*$/gm);
+  assert.equal(tierBullets?.length, 3);
+  assert.match(tierBullets[0], /T0:.*one ticket.*without required scenario titles or a separate brief/);
+  assert.match(tierBullets[0], /current checkout.*leave the code uncommitted.*no push or PR required/);
+  assert.match(tierBullets[1], /T1:.*1-5 outcome-level tickets without a brief.*2-5 scenario titles.*own PR/);
+  assert.match(tierBullets[2], /T2:.*spec\.md.*several outcome-level tickets.*skeleton.*own worktree.*parallel.*close each ticket after merge/);
+  assert.doesNotMatch(tierExplanation, /^\|/m);
+  assert.match(start, /explain the workflow differences, not which tier you think fits the task/);
   assert.match(start, /never infer, recommend or default to T0\/T1\/T2/);
   assert.match(start, /STOP and wait for my explicit choice/);
   assert.match(start, /A chat "yes" is not a tier choice/);
@@ -48,13 +68,23 @@ test("the grill waits for the user's tier choice after a short summary", () => {
   assert.match(session, /after the user explicitly chose T0\/T1\/T2/);
 });
 
+test("T0 implementation leaves verified changes uncommitted without requiring a PR", () => {
+  assert.match(lane, /T0: leave the changes uncommitted in the current checkout; do not commit, push or open a PR unless I explicitly ask/);
+  assert.match(lane, /For T0, leave the findings and any agreed experiment code uncommitted/);
+  const finish = lane.split("## Finish\n")[1].split("For T1/T2:")[0];
+  assert.match(finish, /save verification against the working tree/);
+  assert.match(finish, /release the claim/);
+  assert.match(finish, /do not require a commit, push, PR or `\/dt-check-merged`/);
+  assert.match(finish, /do not record merge-based closure/);
+});
+
 test("the grill writes a short brief and outcome-level tickets, not a design document", () => {
   const plan = start.split("## Write the plan")[1];
   assert.ok(plan, "dt-start must write the plan");
   assert.match(plan, /reflects this session only/);
   assert.match(plan, /do not invent contracts, schemas or per-file changes/);
-  assert.match(plan, /one to two pages/);
-  assert.match(plan, /T0\/T1: exactly one ticket, `00`/);
+  assert.match(plan, /[Oo]ne to two pages/);
+  assert.match(plan, /T0: exactly one ticket, `00`. T1: 1-5 tickets/);
   assert.match(plan, /Prefer fewer, larger tickets/);
   assert.match(plan, /under ~700 lines of change/);
   assert.match(plan, /No Gherkin, change tables or exhaustive file lists/);
@@ -73,14 +103,14 @@ test("the spec keeps the module map while tickets own execution details", () => 
   assert.match(spec, /Module\/touches key \| Code or artifact paths \| Responsibility \(one sentence\) \| Depends on \| New or existing/);
   assert.match(spec, /Every `touches` key/);
   assert.match(spec, /exact name used in ticket frontmatter/);
-  assert.match(spec, /Do not leave shorthand keys undefined/);
+  assert.match(spec, /including aliases and non-code resources/);
   assert.match(spec, /Do not include slices, ticket lists or IDs, ticket\/lane ownership, ticket dependency tables, implementation steps or landing order/);
   assert.match(spec, /Keep interface declarations and command\/schema details out of the module map/);
   assert.doesNotMatch(spec, /^```/m);
   assert.match(start, /Tickets answer \*\*how\*\*/);
-  assert.match(start, /Ticket 00 uses the shared \*\*Module map\*\* in `spec.md`/);
-  assert.match(start, /do not duplicate the canonical map in tickets/);
-  assert.match(start, /T2: the compact module map from `spec.md`/);
+  assert.match(start, /the Module map's public interfaces as real compiling code/);
+  assert.match(start, /Do not duplicate the map in tickets/);
+  assert.match(start, /T2: the module map/);
   assert.match(start, /only when the user requested one/);
 });
 
@@ -92,7 +122,6 @@ test("revisions preserve and backfill the spec module map without reopening comp
   assert.match(revise, /Backfill a missing or incomplete module map/);
   assert.match(revise, /without editing done or merged tickets/);
   assert.match(revise, /Edit the affected tickets without rewriting unrelated ones/);
-  assert.match(revise, /Never edit done or merged tickets to relocate it/);
   assert.match(lane, /Resolve `touches` keys through the spec's Module map/);
   assert.match(lane, /Build ticket 00's interfaces from that map and the ticket's Scope/);
   assert.match(review, /against the spec's module map, the ticket's Scope and `touches`/);
@@ -116,9 +145,9 @@ test("unresolved implementation questions become bounded spikes with dependent w
   assert.match(start, /never change the tier yourself/);
   assert.match(revise, /add a bounded spike rather than guessing implementation/);
   assert.match(revise, /Preserve in-flight and completed ticket protections/);
-  assert.match(lane, /Replace the implementation loop's scenario-first and TDD steps/);
+  assert.match(lane, /[Rr]eplace the implementation loop's scenario-first and TDD steps/);
   assert.match(lane, /stop at the stated time or effort limit/);
-  assert.match(lane, /Commit the findings so normal PR review and merge closure apply/);
+  assert.match(lane, /For T1\/T2, commit the findings so normal PR review and merge closure apply/);
   assert.match(lane, /dependent tickets remain blocked until the spike is closed and their unresolved approach is settled/i);
   assert.match(review, /review the findings against its question, experiment, effort limit and Done when/);
   assert.match(review, /do not demand production implementation or feature scenarios/);
@@ -146,7 +175,6 @@ test("UI tickets describe pages, controls, actions and visible results in plans"
     assert.match(prompt, /mixed UI\/backend/);
     assert.match(prompt, /known or settled routes, labels and behavior|routes and labels known from the code or agreed with the user/);
   }
-  assert.match(start, /Outcome and Scope describe what users see and do; Example walks through those actions; Done when checks the resulting screen state/);
   assert.match(start, /Click "Add brand" -> dialog opens with a "Brand name" input/);
   assert.match(start, /Canceling leaves the list unchanged and creates no brand/);
   assert.match(start, /ask about missing product decisions instead of inventing pages, controls or behavior/);
@@ -168,11 +196,11 @@ test("UI planning captures supplied prototypes and links durable references in t
   assert.match(start, /Every UI ticket, including mixed UI\/backend tickets/);
   assert.match(start, /embedded relative screenshot links/);
   assert.match(start, /agreed differences/);
-  assert.match(start, /Verify that every linked screenshot exists/);
+  assert.match(start, /every linked screenshot exists/);
   assert.match(start, /!\[Brands list\]\(\.\.\/references\/ui\/brands-list\.png\)/);
   assert.match(revise, /Apply `\/dt-start`'s UI reference requirements/);
   assert.match(revise, /Do not silently waive missing references/);
-  assert.match(revise, /Adding references to an in-flight ticket may only clarify settled scope/);
+  assert.match(revise, /An example or reference added to an in-flight ticket must only clarify its existing behavior/);
   assert.match(readme, /references\/ui\/manifest\.md/);
 });
 
@@ -229,7 +257,30 @@ test("planning, implementation and review ask for essential regression tests, no
     assert.match(doc, /required repository checks/);
   }
   assert.match(lane, /do not duplicate the same assertion across unit, integration and end-to-end layers/);
-  assert.match(lane, /not permission to weaken tests or skip safety-critical cases/);
+  assert.match(lane, /Never weaken assertions/);
+  assert.match(lane, /safety-critical cases/);
+});
+
+test("lanes confirm requirements before work and reuse only current, settled confirmations", () => {
+  const interview = lane.split("## Requirements interview\n")[1]?.split("## Questions")[0];
+  assert.ok(interview, "requirements interview must precede implementation");
+  assert.ok(lane.indexOf("## Requirements interview") < lane.indexOf("## Loop"));
+  assert.match(lane, /check the Requirements interview below, then continue from the saved `next`/);
+  assert.match(interview, /before scenarios, implementation or spike experiments/);
+  assert.match(interview, /Ticket-start confirmation selects the ticket; it does not replace this interview/);
+  assert.match(interview, /"override" does not skip it/);
+  assert.match(interview, /Skip the interview only when it was already completed, the confirmed requirements still match the current ticket and spec, and there are no unresolved questions/);
+  assert.match(interview, /A resume or existing code alone is not proof of confirmation/);
+  assert.match(interview, /Outcome, Scope, Out of scope and Done when/);
+  assert.match(interview, /neither the code nor the plan answers, in small numbered batches/);
+  assert.match(interview, /wait for my answers; do not start ticket work while requirements remain unsettled/);
+  assert.match(interview, /ask me to confirm before continuing, even if the first interview had no questions/);
+  assert.match(interview, /revisit only the affected points and confirm those changes/);
+  assert.match(interview, /Requirement confirmation.*recording what I confirmed, including scope and acceptance/);
+  assert.match(interview, /preserving existing verification, todos and blockers; clear only blockers resolved by this interview/);
+  assert.match(interview, /survive later progress saves/);
+  assert.match(interview, /Never mark the interview complete before I confirm/);
+  assert.match(readme, /a later run skips the interview only when that confirmation still matches the current requirements and no questions remain/);
 });
 
 test("lanes write their own scenarios and may change interfaces nobody else uses yet", () => {
@@ -237,8 +288,9 @@ test("lanes write their own scenarios and may change interfaces nobody else uses
   assert.doesNotMatch(lane, /Gherkin|frozen/);
   assert.match(lane, /Public interfaces may change when the code needs it/);
   assert.match(lane, /NEEDS INTERFACE CHANGE/);
-  assert.match(lane, /ask the user about the change and coordinate affected work/);
-  assert.match(lane, /T0\/T1 features are one ticket \(`00`\) built in the current checkout on a `quick\/<slug>` branch/);
+  assert.match(lane, /ask me and coordinate affected work/);
+  assert.doesNotMatch(lane, /quick\/<slug>/);
+  assert.match(lane, /T0 stays on the current branch: never create or switch branches, commit, push or open a PR unless I explicitly ask/);
   assert.match(lane, /sequence diagram of the skeleton path to the PR description/);
 });
 
@@ -249,7 +301,6 @@ test("agents maintain planning files without requiring the revise command", () =
   assert.match(lane, /Never hand-edit progress.json/);
   assert.match(lane, /Keep done and merged tickets unchanged/);
   assert.match(review, /update editable planning files directly/);
-  assert.match(start, /normal work can update editable tickets and the spec directly/);
   const session = read("../extensions/dt-session/index.ts");
   assert.match(session, /Agents may update spec.md and editable ticket files directly/);
   assert.match(session, /dt-revise is an optional spec\/ticket coverage audit/);
@@ -280,13 +331,11 @@ test("verification uses saved summaries and optional artifacts, not per-feature 
 test("necessary test and fixture maintenance does not require scope revision", () => {
   const conventions = read("../AGENTS.md");
   for (const doc of [lane, conventions]) {
-    assert.match(doc, /Necessary tests, shared fixtures and test-only build wiring may be read and updated outside `touches`/);
-    assert.match(doc, /Do not block or request `\/dt-revise` solely because these supporting files are outside `touches`/);
-    assert.match(doc, /Do not weaken assertions, relax validation or change public contracts to make tests pass/);
-    assert.match(doc, /Actual concurrent ownership conflicts still require coordination/);
-    assert.match(doc, /Record the supporting paths and run their affected checks/);
+    assert.match(doc, /Necessary tests, shared fixtures and test-only build wiring may be updated outside `touches` without `\/dt-revise`/);
+    assert.match(doc, /Never weaken assertions, relax validation or change public contracts to make tests pass/);
+    assert.match(doc, /record those paths and run their checks/);
   }
-  assert.match(lane, /including the supporting test and fixture files allowed below/);
+  assert.match(lane, /plus the tests and fixtures they need/);
   assert.ok(review.includes("supporting work, not scope violations; do not require `/dt-revise` for them"));
 });
 

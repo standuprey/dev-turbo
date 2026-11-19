@@ -18,7 +18,7 @@ test("full lanes route to the picker without choosing another session's ticket",
   const v = view({ "01": { status: "in_progress", claim: { owner: "other", checkout: "/lane2" } }, "02": { status: "in_progress" }, "03": { status: "todo" } });
   assert.deepEqual(nextCommands(v, logic), ["/dt-lane"]);
   assert.equal(logic.suggestNext({ slug: project.slug, ...v.snapshot }), "/dt-lane demo");
-  assert.match(renderStatus(project, v.snapshot, logic), /## Next commands\n- `\/dt-lane`$/);
+  assert.ok(renderStatus(project, v.snapshot, logic).split("\n").every((line) => line.startsWith("|")));
 });
 
 test("review work outranks ready tickets and stale generic lane handovers", () => {
@@ -27,7 +27,7 @@ test("review work outranks ready tickets and stale generic lane handovers", () =
     const before = JSON.stringify(v.snapshot.prog);
     assert.deepEqual(nextCommands(v, logic), ["/dt-review 42"]);
     assert.equal(logic.suggestNext({ slug: project.slug, ...v.snapshot }), "/dt-review demo 42");
-    assert.match(renderStatus(project, v.snapshot, logic), /## Next commands\n- `\/dt-review 42`$/);
+    assert.match(renderStatus(project, v.snapshot, logic), /\| 42 \| 42 \| review \|/);
     assert.equal(JSON.stringify(v.snapshot.prog), before);
   }
 });
@@ -65,7 +65,7 @@ test("completion has no next command and suggests no review", () => {
     const v = view({ "00": { status: "done" } });
     const p = { ...project, tier };
     assert.deepEqual(nextCommands({ ...v, project: p }, logic), []);
-    assert.match(renderStatus(p, v.snapshot, logic), /## Next commands\nNo next command\.$/);
+    assert.equal(renderStatus(p, v.snapshot, logic).split("\n").length, 2);
     assert.doesNotMatch(renderStatus(p, v.snapshot, logic), /drift/i);
   }
   const v = view({ "00": { status: "done" } });

@@ -69,8 +69,8 @@ test("routing: revise when no plan, lane when ready, closure when merged", () =>
 	const saved = view(); saved.snapshot.prog.next = "/dt-slice";
 	assert.deepEqual(nextCommands(saved, logic), ["/dt-revise"], "retired commands map to /dt-revise");
 	const output = renderStatus(project, view().snapshot, logic);
-	assert.equal(output.split("## Next commands\n")[1].trim(), "- `/dt-lane`");
-	assert.match(output, /Plan: approved/);
+	assert.ok(output.split("\n").every((line) => line.startsWith("|") && line.endsWith("|")));
+	assert.match(output, /\| 🟢 ready \|/);
 	assert.ok(!/drift|Architecture|Slices/i.test(output));
 	assert.equal(namedText("Gate 1 pending, G3 and G2b"), "Plan pending, Ticket closure and ticket 00 acceptance");
 });
@@ -82,7 +82,7 @@ test("merged tickets route straight to internal closure, never review or rebuild
 			v.snapshot.prog.next = next;
 			const before = JSON.stringify(v.snapshot.prog);
 			assert.deepEqual(nextCommands(v, logic), ["/dt-check-merged"]);
-			assert.match(renderStatus(project, v.snapshot, logic), /`\/dt-check-merged`/);
+			assert.match(renderStatus(project, v.snapshot, logic), /\/dt-check-merged/);
 			assert.equal(JSON.stringify(v.snapshot.prog), before, "routing must not mutate acceptance or status");
 		}
 	}

@@ -1,34 +1,93 @@
 # dev-turbo for pi (v0.4)
 
-This version works in any GitHub repository: T2 tickets run in their own worktrees, get GitHub issues and open ready PRs. The Atoms version, with fixed lane clones and Jira, lives in `~/code/dev-turbo-atoms`; install only one of them in a Pi instance.
+This version works in any GitHub repository: T1/T2 tickets run in their own worktrees, get GitHub issues and open ready PRs. The Atoms version, with fixed lane clones and Jira, lives in `~/code/dev-turbo-atoms`; install only one of them in a Pi instance.
 
 Prompt templates, one zero-dependency script and extensions for help, read-only status, resume, a selected session project and local argument autocomplete. Files are the memory; you hold the approvals.
 
-## Principles
-1. Every task starts with a grill. The agent gives a short summary and asks you to choose T0 / T1 / T2 without guessing or recommending a tier, then writes the plan from what you settled: a short brief and outcome-level tickets. You approve it once with `/dt-approve plan`.
-2. Plan the big building blocks, not the details. Interfaces are written as code in ticket 00 and reviewed in its PR; each lane writes its own scenarios from the ticket's outcome.
-3. Deep modules, one responsibility, one-way dependencies; one Mermaid notation for module diagrams.
-4. Vertical, demoable tickets; TDD inner loop; fresh context for review; state kept by `dt.mjs`, never hand-edited.
-5. The plan changes when reality does. Agents maintain the spec and editable tickets directly, asking about unsettled decisions in chat; `/dt-revise` is an optional coverage audit, not an editing or approval prerequisite.
-
 ## Flow
 
-**Move forward with a dt-command.** Discussion is for questions and adjustments; a chat "yes" never records approval.
+Move forward with a `/dt-*` command. Chat is for questions and adjustments; a chat "yes" never records an approval.
 
-Start with `/dt-start <task>`. After the grill, it asks you to choose a tier and writes the plan: T0/T1 get one ticket; T2 gets a brief (`spec.md`) and a handful of tickets. The spec says what and why: behavior, goals, constraints and acceptance criteria. The shared module map lives in `spec.md`: exact `touches` keys, code/artifact paths, responsibilities and module dependencies. Tickets say how: slices, ticket/lane ownership, ticket dependencies, implementation approach and landing order. Ticket 00 builds the mapped modules' interfaces as compiling code; it does not own a duplicate module map. It saves a plan proposal only after your explicit choice. `/dt-approve plan` confirms the project name, records approval and selects the project. For T0/T1, that confirmation also starts ticket 00 in the current checkout; safety checks still run, and warnings require a separate decision. T2 continues with `/dt-lane`. Following commands omit the slug. In a new session, `/dt-resume [slug]` selects an existing project; the footer shows its name.
+### 1. Create the plan
+
+`/dt-start <description>`
+
+- Starts a new project and clears the current selection
+- Asks clarifying questions in rounds, each with a recommended answer
+- Gives a short task summary, then asks you to choose, without guessing or recommending a tier:
+  - T0: one ticket; the change stays uncommitted on the current branch, with no PR
+  - T1: 1-5 tickets without a spec, each with 2-5 scenarios to check and its own PR
+  - T2: anything bigger; a spec and several tickets, each with its own PR
+- Writes the tickets with their dependencies: one for T0, 1-5 for T1, more for T2
+- T2 only: writes the spec
+- The spec says what and why: behavior, constraints and acceptance, with no implementation plan; the shared module map lives in `spec.md` too
+- Tickets say how; ticket 00 of a T2 plan builds a working skeleton first
+
+`/dt-approve plan`
+
+- Approves the plan, then creates and selects the project
+- T0: the same confirmation starts ticket 00 on the current branch, then goes through the requirements interview and implementation from step 2. It never creates a branch, commits or pushes. This is the only command for a T0 feature: review the uncommitted change yourself, then `/dt-close 00 <reason>` marks the ticket done
+- T1/T2: creates a GitHub issue per ticket, plus one for the feature in T2
+- `/dt-slice-plan` shows which tickets can run in parallel, computed from their dependencies
+
+### 2. Implement a ticket (T1/T2)
+
+- Commit and push the plan files to the main branch
+- In the main checkout: `/new` to reset context (recommended), then `/dt-resume` to pick the feature
+- `/dt-lane`:
+  - Opens the ticket picker; choose a ready ticket
+  - Shows a short description of the ticket and asks you to confirm
+  - Creates the worktree `../<repo>.lane-<id>` on branch `ticket/<slug>-<id>`, then asks you to open pi there
+- In the worktree: `/dt-resume`, then `/dt-lane <id>`:
+  - Claims the ticket, then reviews the requirements with you and waits for your confirmation
+  - Writes failing scenarios, implements until they pass, verifies, pushes and opens a PR ready for review, linked to the ticket's GitHub issue
+- Edit the PR description if needed
+
+### 3. Review the ticket
+
+- In the ticket's checkout: `/new` to reset context (recommended)
+- `/dt-resume` to pick the feature
+- Pick a stronger model
+- `/dt-review [id]` reviews the ticket's code in chat, without PR comments, then offers to fix the findings you choose; `autofix` applies all safe fixes; re-review is optional
+- Do your own code review on GitHub
+
+### 4. Test manually
+
+- Decide where to test, depending on the ticket: preview, sandbox or staging
+- Optional: `/dt-staging-test [id]` writes a test script and runbook, waits for your review, runs it and records the passed checks in the PR. It prefers an isolated preview or sandbox environment when the project offers one
+
+### 5. Ready for review and merge
+
+- Ask for reviews on GitHub; the PR is already ready for review
+- After approval, merge it yourself
+- `/dt-check-merged` closes every ticket whose PRs are all merged and removes their worktrees; tickets that depended on them become ready
+- Back to step 2 for the next ticket
+
+### Any time
+
+- `/dt-revise [change]`: revise the plan or scope; without a change, it checks that the spec and tickets cover each other
+- `/dt-close <ticket> <reason>`: force close an in-progress or review ticket without merge or test checks; it keeps the code, branch, PRs and GitHub issue, and unblocks dependent tickets
+- `/dt-help`: show this guide
+- `/dt-status`: show a table of open tickets, with a link to the spec when there is one; `/dt-status all` includes closed tickets
+- `/dt-status <id>`: show the ticket's description and saved status, with a link to a folder of its reference screenshots, if any; `lane` or a branch name also select a ticket
+- `/dt-slice-plan`: show the remaining tickets grouped into batches that can run in parallel
+- `/dt-resume [slug]`: select or switch projects; selection survives reloads, reopening and forks of the Pi session, but a brand-new session needs it again
+
+See [workflow.md](workflow.md) for the detailed map.
 
 ### Commands
 
 | Command | What it does |
 |---|---|
 | `/dt-start <task>` | Grill, choose the tier, then write the brief and tickets. Clears the current selection. |
-| `/dt-approve plan` | Approve a new plan (creates and selects the project), and start ticket 00 for T0/T1 with the same confirmation. Also honors legacy pending plan gates without starting work. |
-| `/dt-lane [id [force\|override]]` | Open the ticket picker, or start/resume one ticket: scenarios red, TDD green, verify, PR. T0/T1 build ticket 00 in the current checkout on `quick/<slug>`. `force` takes over a claim in its saved checkout; `override` accepts all start-policy warnings. |
+| `/dt-approve plan` | Approve a new plan (creates and selects the project), and start ticket 00 for T0 with the same confirmation. Also honors legacy pending plan gates without starting work. |
+| `/dt-lane [id [force\|override]]` | Open the ticket picker, or start/resume one ticket: requirements interview, scenarios red, TDD green, verify, PR. T0 builds ticket 00 on the current branch without committing; T1/T2 tickets run in lanes. `force` takes over a claim in its saved checkout; `override` accepts all start-policy warnings. |
 | `/dt-review [id \| branch] [autofix]` | Review in chat before merge; offer to fix selected findings. Re-review is optional. |
+| `/dt-close <ticket> <reason>` | Force close an in-progress or review ticket without merge or test checks. Keeps code, branch, PRs and the GitHub issue; releases its claim. |
 | `/dt-check-merged` | After you merge, check every open ticket's PRs on GitHub, report their states and close each ticket whose PRs are all merged. |
 | `/dt-staging-test [id]` | Generate a staging test script and runbook for a ticket PR, wait for your review, run it, then record passed checks in the PR. |
 | `/dt-revise [change]` | Optionally request a plan edit, or without arguments audit spec/ticket coverage in both directions. |
-| `/dt-status [id]` | Show the saved board, or one full ticket and its saved progress. No model call. |
+| `/dt-status [id\|branch\|lane\|all]` | Show an ID-sorted table of open tickets (`all` also lists closed tickets), one full ticket and its saved progress, or the current lane’s ticket with `lane`. No model call. |
 | `/dt-slice-plan` | Show remaining parallel batches and their ticket IDs. No model call. |
 | `/dt-resume [slug]` | Select or switch projects and show where one stands. |
 | `/dt-help` | Show this command flow. No model call. |
@@ -60,11 +119,13 @@ Agents may update the spec and editable tickets directly during implementation o
 
 No renewed plan approval is required after `/dt-revise`, even when building blocks, scope or ticket dependencies change. The agent asks about unsettled decisions in chat before editing; a clear requested change does not need another confirmation. Once those decisions are settled, edits take effect under the original plan approval and work continues with `/dt-lane`. In-flight scope-change handovers and lane claims still apply.
 
-By default, done and merged tickets stay closed and extra work becomes a new ticket; explicit ticket-start override can reopen them while preserving old PR facts. A T0/T1 task stays one ticket; bigger changes become a new T2 project.
+By default, done and merged tickets stay closed and extra work becomes a new ticket; explicit ticket-start override can reopen them while preserving old PR facts. A T0 task stays one ticket and a T1 task at most five tickets without a spec; bigger changes become a new T2 project.
 
 ### Ticket picker and lane ownership
 
-Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when ready work fits alongside existing tickets. The picker reads saved local state; it does not refresh GitHub or change progress. Tickets without warnings appear first, and accepted tickets are omitted from the picker; an explicit ID with override can reopen completed work.
+After setup, `/dt-lane` briefly reviews the ticket’s outcome, scope and acceptance with you, asks unresolved questions and waits for requirement confirmation before tests, implementation or spike experiments. Ticket-start confirmation and start overrides do not replace this interview. The agreed requirements are saved in the ticket; a later run skips the interview only when that confirmation still matches the current requirements and no questions remain. Changed requirements or new questions reopen only the affected points.
+
+Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when ready work fits alongside existing tickets. The picker reads saved local state; it does not refresh GitHub or change progress. Ticket labels, summaries and confirmation titles include the saved branch in parentheses when present, for example `01 · Update schema (ov_777_update_schema)`; no branch name is guessed. Tickets without warnings appear first, and accepted tickets are omitted from the picker; an explicit ID with override can reopen completed work.
 
 | Picker label | Meaning / action |
 |---|---|
@@ -77,7 +138,7 @@ Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when
 
 **Canceling changes nothing.** After selection, the extension displays a short summary with the ticket ID, title and outcome, then asks whether it is the ticket you want to work on. This also applies to explicit IDs, resumes and force takeovers. Declining or canceling leaves claims and Git unchanged. Use `/dt-status <id>` to read the full ticket and its saved progress. After confirmation, the agent rechecks safety and claims the ticket atomically before Git operations. All current policy warnings are rechecked when claiming. Override consent is explicit, recorded with the claim and never inferred merely from opening the picker.
 
-For a new T0/T1 project, the `/dt-approve plan` confirmation also confirms starting ticket 00, so a clean start skips the picker and second confirmation. Warnings still show the Start anyway dialog; declining or a failed check leaves the plan approved without claiming or changing Git. Use `/dt-lane 00` to retry or resume, with normal ticket confirmation. T2 and legacy revision approvals do not start work.
+For a new T0 project, the `/dt-approve plan` confirmation also confirms starting ticket 00, so a clean start skips the picker and second confirmation. Warnings still show the Start anyway dialog; declining or a failed check leaves the plan approved without claiming or changing Git. Use `/dt-lane 00` to retry or resume, with normal ticket confirmation. T2 and legacy revision approvals do not start work.
 
 - `/dt-lane <id>` skips the picker, not ticket confirmation or safety checks. Normal starts require an interactive or RPC confirmation dialog. Non-interactive starts require an explicit `/dt-lane <id> override`; otherwise use `/dt-status <id>` to inspect.
 - `/dt-lane <id> force` explicitly takes over a claim **in its saved checkout**, after you check the previous agent is gone. It does not stop that agent or cancel running commands. Without override, dirty-tree, dependency and module-conflict checks still apply.
@@ -92,7 +153,7 @@ The session context supplies `--owner <session-ID>` for `dt.mjs next`, ticket pr
 
 ### Remaining slices
 
-`/dt-slice-plan` shows `Slice 1: 07 (ticket/demo-07), 42` followed by each later batch for the selected project. Ticket branches appear in parentheses when saved in progress; tickets without a saved branch show only their ID. It reads saved tickets and progress only: no model call, remote refresh, claims or project-file changes. Tickets recorded done or with all saved PRs merged are excluded, except reopened work still needs new merges. In-progress and review tickets remain in the plan.
+`/dt-slice-plan` shows `Slice 1: 07 (ticket/demo-07), 42` followed by each later batch for the selected project. `/dt-slice-plan all` (ticket IDs only, without Git branches) includes completed tickets and rebuilds the batches from the beginning using the current tickets and dependencies, with a status on every slice: `closed` when all its tickets are done or fully merged, `in-flight` when any open ticket is ready, in progress or under review, otherwise `blocked` (all remaining tickets are blocked). Closed tickets do not make a mixed slice active; reopened tickets remain open. Ticket branches appear in parentheses when saved in progress; tickets without a saved branch show only their ID. It reads saved tickets and progress only: no model call, remote refresh, claims or project-file changes. Tickets recorded done or with all saved PRs merged are excluded, except reopened work still needs new merges. In-progress and review tickets remain in the plan.
 
 Each batch uses `blocked_by` and symmetric `unsafe_with` conflicts; shared `touches` do not split the display plan. Dependencies must finish in earlier batches. Tickets are considered in numeric ID order, greedily filling each batch; this is deterministic, not necessarily the shortest possible schedule. Batch size is not limited by available lanes. Shared-module start guards, saved blockers, approval gates and claims still apply when actually starting work. Missing dependencies or cycles are reported with the unscheduled ticket IDs, not silently ignored. Old written slice assignments may differ when ticket fields or merge states change.
 
@@ -116,24 +177,16 @@ Save short verification results, useful links and remaining checks in `progress.
 
 ### Approval and closure
 
-`/dt-approve plan` approves a new plan (creating and selecting the project), and starts ticket 00 for T0/T1 after safety checks. It asks for one approve-and-start confirmation for T0/T1, and fails if the plan files changed while its dialog was open. `/dt-revise` keeps that approval intact rather than requesting another one. Legacy pending plan gates still use their saved approval path; no existing pending gate is silently cleared.
+`/dt-approve plan` approves a new plan (creating and selecting the project), and starts ticket 00 for T0 after safety checks. It asks for one approve-and-start confirmation for T0, and fails if the plan files changed while its dialog was open. `/dt-revise` keeps that approval intact rather than requesting another one. Legacy pending plan gates still use their saved approval path; no existing pending gate is silently cleared.
 
 Merging a ticket's PRs is your decision; `/dt-check-merged` only records it. It checks every saved PR of each open ticket live on GitHub, reports the states in one table, and closes each ticket whose PRs are all merged. Tickets with an open, closed-unmerged or unreadable PR stay open. It needs no confirmation, and closure is not proof that staging or production checks passed.
 
-Neither command merges a PR or starts implementation.
-
-### Any time
-
-- `/dt-status [id]`: read-only board (completion, remaining tickets, blockers, plan state, **next dt-command(s) last**) or one full ticket with its saved progress. Pending reviews recommend `/dt-review <id>` before starting more work with `/dt-lane`; merged work still goes to `/dt-check-merged`. No model call or remote refresh.
-- `/dt-help`: this command flow, picker labels and ownership rules, without a model call.
-- `/dt-resume [slug]`: select/switch projects; remote refresh failures keep the local selection. It shows next commands in the transcript.
-
-Selection survives reloads, reopening and forks of the Pi session. A brand-new session needs resume or a new grill. Starting a new grill clears the old selection. The removed commands `/dt-spec`, `/dt-slice`, `/dt-amend`, `/dt-drift` and `/dt-quick` print their replacement. See [workflow.md](workflow.md) for the detailed map.
+Neither command merges a PR. Only plan approval for a new T0 project starts implementation. `/dt-close <ticket> <reason>` closes an active ticket without checking merges or tests.
 
 ## Examples
 
-- Button typo (T0): `/dt-start` → `/dt-approve plan` (approves and starts ticket 00) → merge → `/dt-check-merged`.
-- Pagination fix (T1): same as T0; the single ticket lists 2-5 scenario titles, and `/dt-review` before merge.
+- Button typo (T0): `/dt-start` → `/dt-approve plan` (approves and starts ticket 00) → implement and verify in the current checkout; leave code uncommitted → `/dt-close 00 <reason>`.
+- Pagination fix (T1): `/dt-start` writes two tickets without a spec → `/dt-approve plan` → `/dt-lane` for each ticket → `/dt-review` → merge → `/dt-check-merged`; each ticket lists 2-5 scenario titles.
 - Export service (T2): `/dt-start` writes a one-page brief and five tickets → `/dt-approve plan` → skeleton 00 → parallel lanes → `/dt-revise` when reality differs.
 
 ## The script
@@ -156,7 +209,7 @@ dt.mjs selftest                           test the pure logic
 ```
 `-h` and `--help` work at every command level, including `config set` and `config set checks`, without requiring a Git repository or running workflow actions. Running `dt.mjs` without arguments shows the top-level help. Run `node --test tests/*.test.mjs` for the CLI, session-state, footer and autocomplete tests. To include the optional Pi-runtime integration test, set `PI_PACKAGE_DIR` to the installed `@earendil-works/pi-coding-agent` package directory.
 
-`--dry-run` prints the git/gh commands instead of running them, without claiming a ticket. Rules it enforces: checkout ownership, `blocked_by` done, no shared `touches`, no `unsafe_with` pair, T2 lanes only from the main checkout; T0/T1 tickets branch `quick/<slug>` in the current checkout. Feature docs inside the repo never count as uncommitted changes.
+`--dry-run` prints the git/gh commands instead of running them, without claiming a ticket. Rules it enforces: checkout ownership, `blocked_by` done, no shared `touches`, no `unsafe_with` pair, T1/T2 lanes only from the main checkout; T0 tickets stay on the current branch, with no Git changes or clean-tree check. Feature docs inside the repo never count as uncommitted changes.
 
 Tickets no longer save a `lane` field. Active ownership lives in `claim.checkout`; lane labels come from the current branches in ticket worktrees, not historical assignments. Tickets optionally save an absolute `worktree` path for resume and cleanup after a claim is released (`progress --ticket ID --worktree PATH`). Legacy lane numbers are discarded on read; legacy absolute paths migrate to `worktree`. Run `dt.mjs migrate-progress <slug>` to persist that migration under the progress lock without changing claims, approvals, timestamps or other saved state.
 
@@ -172,17 +225,17 @@ Then `/reload` in pi. `~/.pi/agent/dt/config.json` holds each repository's `chec
 
 ## PR conventions
 
-T2 tickets branch `ticket/<feature>-<id>`; T0/T1 tickets use `quick/<slug>`. Resume, lane display, PRs and cleanup use the saved branch. Target the main branch by default. Split PRs should each contain only their own scope; do not introduce a stack without asking. See [AGENTS.md](AGENTS.md).
+T1/T2 tickets branch `ticket/<feature>-<id>`; T0 tickets stay on the current branch without commits. Resume, lane display, PRs and cleanup use the saved branch. Target the main branch by default. Split PRs should each contain only their own scope; do not introduce a stack without asking. See [AGENTS.md](AGENTS.md).
 
-Keep PRs short: a few plain change bullets under `## Description`, then `## Testing` starting with `unit tests + staging tests` and one suggested staging check. Mention only real merge prerequisites. Leave test implementation, unfinished work and long verification records out of the body. `dt.mjs pr` titles T2 ticket PRs `<feature> <ID>: <ticket-title>` and T0/T1 PRs with the ticket title alone, and adds `Closes #<issue>` for the ticket's GitHub issue without rewriting the supplied description. Existing published PRs are preserved. See [AGENTS.md](AGENTS.md) for the format; `dt.mjs pr` takes a short `--body-file`.
+Keep PRs short: a few plain change bullets under `## Description`, then `## Testing` starting with `unit tests + staging tests` and one suggested staging check. Mention only real merge prerequisites. Leave test implementation, unfinished work and long verification records out of the body. `dt.mjs pr` titles ticket PRs `<feature> <ID>: <ticket-title>`, and adds `Closes #<issue>` for the ticket's GitHub issue without rewriting the supplied description. Existing published PRs are preserved. See [AGENTS.md](AGENTS.md) for the format; `dt.mjs pr` takes a short `--body-file`.
 
 ## Day to day
 - `/dt-help` displays the workflow guide directly, without a model call, repository lookup or state changes.
 - `/dt-resume` opens a feature picker. In the terminal, Ctrl+D deletes the highlighted feature after a confirmation dialog. Deletion removes its saved folder, including tickets and progress, but leaves branches, worktrees, PRs and issues untouched. Features with claimed tickets cannot be deleted; deleting the selected feature clears the session selection.
-- `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` and `/dt-status ` suggest that project's ticket IDs; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-approve ` suggests `plan` when one is pending. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
+- `/dt-resume ` autocompletes feature slugs. After selection, `/dt-lane ` and `/dt-status ` suggest that project's ticket IDs; `/dt-status ` also suggests saved branch names, `lane` and `all`; `/dt-review ` suggests its ticket IDs and `autofix` after a target; `/dt-approve ` suggests `plan` when one is pending. Suggestions use local files only, with a two-second feature-list cache; no GitHub refresh or state writes.
 - New session: open pi in the repository (or a lane) and run `/dt-resume`. Pick a feature; it posts a short brief (phase, gates, board, in-flight tickets with PRs, verification, todo, next step) and lists next commands without a follow-up picker.
-- Commit and push T2 ticket files to the main branch, then run `/dt-lane` from the main checkout and choose a ready ticket. After selection, it creates `../<repo>.lane-<id>` and tells you to open pi there; run `/dt-lane <id>` there to resume. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).
-- `/dt-status` displays a saved-state board directly: completed tickets and verification, tickets left, in-flight work, blockers, plan state and next steps. `/dt-status <id>` shows one full ticket, followed by readable saved progress from `progress.json`, including claims, branch, verification, todos, blockers, PRs, issues and acceptance. Empty fields are omitted. It explicitly reports when no progress is saved for that ticket. It does not call the model, start work, refresh remote facts or write project state. It requires a selected project; it never guesses from a branch or the only feature. Use `/dt-resume` to select or switch projects.
+- Commit and push T1/T2 ticket files to the main branch, then run `/dt-lane` from the main checkout and choose a ready ticket. After selection, it creates `../<repo>.lane-<id>` and tells you to open pi there; run `/dt-lane <id>` there to resume. Feature docs, `progress.json` included, live in the main checkout's `docs/features/<slug>/`: commit `progress.json` when convenient (it is state, not code).
+- `/dt-status` and `/dt-status all` output only one table, sorted by ascending ticket ID: ticket, state, verification and notes. Closed tickets are hidden by default and included with `all`. Notes contain at most three short bullets, with the saved branch first when present, then blockers and the most useful remaining context. Other notes are shortened to 100 characters; full saved progress remains available with `/dt-status <id>`. Ready tickets show `🟢 ready`, with only the State cell colored light green using the theme’s success color. Saved output has no terminal color codes. An empty result shows only the table headers. Branch names come from saved progress, without GitHub lookups or guessing. `/dt-status <branch>` shows the full ticket and saved progress whose saved branch matches exactly, including closed tickets. It stays within the selected project; missing or ambiguous branch matches report an error. Ticket IDs, `lane` and `all` keep their existing meanings. `/dt-status <id>` shows one full ticket, followed by readable saved progress from `progress.json`, including claims, branch, verification, todos, blockers, PRs, issues and acceptance. Empty fields are omitted. It explicitly reports when no progress is saved for that ticket. It does not call the model, start work, refresh remote facts or write project state. `/dt-status lane` shows the same full ticket and saved progress for the current checkout, resolving the selected project’s saved or standard ticket branch (including legacy quick branches; a T0 project always resolves to ticket 00), then saved claim/worktree paths. Missing or ambiguous lane matches report an error instead of choosing a ticket. It requires a selected project; it never selects a project from a branch or the only feature. Use `/dt-resume` to select or switch projects.
 - `dt.mjs status <slug>` any time for the full board and DAG; `dt.mjs progress <slug> [--ticket ID]` for the raw saved state.
 
 ## Where to iterate first

@@ -19,7 +19,7 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 	execFileSync("git", ["remote", "add", "origin", `https://github.com/${key}.git`], { cwd: dir });
 	execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], { cwd: dir });
 	await writeFile(join(dir, "config.json"), JSON.stringify({ defaults: {} }));
-	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, forceCloseTicket, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => ({ ...${JSON.stringify(repo)}, root: "/repo" });\n`);
 	const require = createRequire(join(pkg, "package.json")), { createJiti } = require("jiti");
 	// Match Pi's legacy pi-ai import mapping, which also exposes TypeBox.
 	const ai = join(dir, "pi-ai.mjs");
@@ -29,14 +29,14 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 	const approve = await jiti.import(join(import.meta.dirname, "../extensions/dt-approve/index.ts"), { default: true });
 	const entries = [], notices = [], messages = [], gateCalls = [], starts = [], preflights = [], confirmations = [], handlers = new Map(), bus = new Map(), tools = new Map();
 	let startWarnings = [], failPreflight = false;
-	let command, check, confirmed = true, failGate = false, ticketPr = "OPEN", failPr = false, blockedSecond = false;
+	let command, check, close, confirmed = true, failGate = false, ticketPr = "OPEN", failPr = false, blockedSecond = false;
 	const prChecks = [], openPrs = new Set();
 	const pi = {
 		on(name, fn) { const list = handlers.get(name) || []; list.push(fn); handlers.set(name, list); },
 		events: { on(name, fn) { bus.set(name, fn); }, emit(name, value) { bus.get(name)?.(value); } },
 		appendEntry(customType, data) { entries.push({ type: "custom", customType, data }); },
 		registerTool(tool) { tools.set(tool.name, tool); }, registerMessageRenderer() {},
-		registerCommand(name, definition) { if (name === "dt-check-merged") check = definition; else { assert.equal(name, "dt-approve"); command = definition; } },
+		registerCommand(name, definition) { if (name === "dt-close") close = definition; else if (name === "dt-check-merged") check = definition; else { assert.equal(name, "dt-approve"); command = definition; } },
 		sendMessage(message) { messages.push(message); },
 		sendUserMessage(text, options) { starts.push({ text, options }); },
 		async exec(cmd, args) {
@@ -156,6 +156,31 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 	assert.ok(messages.at(-1).content.endsWith("## Next commands\nNo next command."));
 	const afterDone = gateCalls.length; await check.handler("", ctx); assert.equal(gateCalls.length, afterDone);
 	assert.match(messages.at(-1).content, /No open tickets have saved PRs/);
+	// Force closure targets an explicit ticket from any checkout and never checks PRs.
+	const beforeClose = await readFile(file, "utf8");
+	p = await read(); p.tickets["00"] = { status: "in_progress", claim: { owner: "other-session", checkout: "/other-checkout" }, prs: [{ number: 123, state: "open" }] }; await save(p);
+	const activeBeforeClose = await readFile(file, "utf8");
+	for (const args of ["", "00", "00   ", "No longer needed", "bad Stop"]) {
+		await close.handler(args, ctx); assert.match(notices.at(-1)[0], /Usage: \/dt-close <ticket> <reason>/);
+		assert.equal(await readFile(file, "utf8"), activeBeforeClose);
+	}
+	await close.handler("99 Stop", ctx); assert.match(notices.at(-1)[0], /no ticket 99/);
+	assert.equal(await readFile(file, "utf8"), activeBeforeClose);
+	await close.handler("01 Stop", ctx); assert.match(notices.at(-1)[0], /only active tickets/);
+	assert.equal(await readFile(file, "utf8"), activeBeforeClose);
+	ctx.isIdle = () => false; await close.handler("00 Stop", ctx); ctx.isIdle = () => true;
+	assert.match(notices.at(-1)[0], /Finish or stop/);
+	assert.equal(await readFile(file, "utf8"), activeBeforeClose);
+	const beforeCloseChecks = prChecks.length, beforeCloseGates = gateCalls.length;
+	await close.handler("0 No longer needed", ctx);
+	assert.equal((await read()).tickets["00"].status, "done");
+	assert.deepEqual((await read()).tickets["01"], p.tickets["01"]);
+	assert.equal((await read()).tickets["00"].acceptance.note, "No longer needed");
+	assert.equal((await read()).tickets["00"].acceptance.forced, true);
+	assert.equal((await read()).tickets["00"].claim, undefined);
+	assert.equal(prChecks.length, beforeCloseChecks); assert.equal(gateCalls.length, beforeCloseGates);
+	assert.match(messages.at(-1).content, /Force closed ticket 00/);
+	await writeFile(file, beforeClose);
 	// Run real CLI writes only after the registered tool guard allows the call.
 	// The sandbox has its own Git repository and feature data; no installed state is touched.
 	const agentBash = async (shell) => {
@@ -184,8 +209,8 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 		assert.deepEqual(start.options, { expandPromptTemplates: true });
 		return handlers.get("input")[0]({ text: start.text, source: "extension" }, ctx);
 	};
-	// One confirmation approves and starts a single-ticket task; warnings still need consent.
-	for (const tier of ["T0", "T1"]) {
+	// One confirmation approves and starts a T0 task; warnings still need consent.
+	for (const tier of ["T0"]) {
 		const slug = `quick-${tier.toLowerCase()}`, quickFolder = join(repo.featuresBase, slug);
 		await mkdir(join(quickFolder, "tickets"), { recursive: true });
 		await writeFile(join(quickFolder, "tickets/00-fix.md"), '---\nid: "00"\ntitle: Fix\n---\n');
@@ -227,11 +252,26 @@ test("Pi runtime: plan approval, cancelled/stale proposals, revised plans and /d
 		assert.equal(JSON.parse(await readFile(quickFile, "utf8")).tickets["00"].status, "done");
 		assert.ok(messages.at(-1).content.endsWith("No next command."));
 	}
+	// T1 plans have up to five tickets and start through the ticket picker, not approval.
+	{
+		const slug = "multi-t1", folder = join(repo.featuresBase, slug);
+		await mkdir(join(folder, "tickets"), { recursive: true });
+		for (const id of ["00", "01", "02", "03", "04", "05"]) await writeFile(join(folder, `tickets/${id}-part.md`), `---\nid: "${id}"\ntitle: Part ${id}\n---\n`);
+		await assert.rejects(proposal.execute("id", { ...params, slug, tier: "T1" }, undefined, undefined, ctx), /at most 5 tickets/);
+		await rm(join(folder, "tickets/05-part.md"));
+		await proposal.execute("id", { ...params, slug, tier: "T1" }, undefined, undefined, ctx);
+		const beforeStarts = starts.length;
+		await command.handler("plan", ctx);
+		assert.equal(entries.filter((e) => e.customType === "dt-project").at(-1).data.tier, "T1");
+		assert.equal(starts.length, beforeStarts, "T1 approval does not start a ticket");
+		assert.doesNotMatch(confirmations.at(-1).title, /start/);
+		assert.match(messages.at(-1).content, /## Next commands/);
+	}
 	for (const outcome of ["cancel", "override", "failed-check", "changed-ticket"]) {
 		const slug = `quick-${outcome}`, folder = join(repo.featuresBase, slug), ticket = join(folder, "tickets/00.md");
 		await mkdir(join(folder, "tickets"), { recursive: true });
 		await writeFile(ticket, '---\nid: "00"\ntitle: Fix\n---\n');
-		await proposal.execute("id", { ...params, slug, tier: "T1" }, undefined, undefined, ctx);
+		await proposal.execute("id", { ...params, slug, tier: "T0" }, undefined, undefined, ctx);
 		await command.handler("plan", ctx);
 		startWarnings = ["Dirty checkout"];
 		confirmed = outcome !== "cancel";

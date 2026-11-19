@@ -1,9 +1,8 @@
 # Overlay: service
 
-- The unit of design is the module with a public API package; everything else is internal. Other modules may only depend on the public API.
-- Ticket 00 defines the public API and contract tests. Consumer-facing behavior is tested at that boundary, not through internals.
-- Build and test affected targets only, with the `checks` command from `dt.mjs info`; do not run a slow full suite as a routine step.
-- Lanes are the ticket worktrees created by `dt.mjs next`. Tickets in flight together must not share modules, generated code, migrations or lockfiles: `dt.mjs next` enforces `touches` and `unsafe_with`, the slicing encodes the rest. Anything shared (schema migration, dependency bump, flag wiring) is its own slice that lands first.
-- Rollout concerns (feature flag, migration order, backward compatibility) are explicit slices, not afterthoughts.
-- Check for shared local state between worktrees (ports, local DB, caches) before running two lanes at once.
-- Follow the repo's existing conventions (build files, package layout, test framework) over generic advice.
+- Each module exposes a public API package; everything else is internal. Other modules use only the public API.
+- Ticket 00 defines the public API and contract tests; test consumer behavior at that boundary.
+- Build and test affected targets with the `checks` command; no routine full suite.
+- Rollout concerns (feature flag, migration order, backward compatibility) get explicit tickets.
+- Before running lanes in parallel, check for local state shared between worktrees (ports, local DB, caches).
+- Repo conventions (build files, package layout, test framework) beat generic advice.

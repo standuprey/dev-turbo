@@ -4,7 +4,54 @@ import { slicePlan, renderSlicePlan } from "../extensions/dt-slice-plan/plan.mjs
 import { normalizeProgress, pickReady, deriveStatuses } from "../dt.mjs";
 
 const ticket = (id, blocked_by = [], touches = [], unsafe_with = []) => ({ id, blocked_by, touches, unsafe_with });
-const plan = (tickets, progress = {}) => slicePlan({ tickets, prog: normalizeProgress(progress) });
+const plan = (tickets, progress = {}, options = {}) => {
+  const prog = normalizeProgress(progress);
+  return slicePlan({ tickets, prog, st: deriveStatuses(tickets, prog) }, { ...options, pickReady });
+};
+const allPlan = (tickets, ticketsProgress = {}, extra = {}) => plan(tickets, {
+  gates: { G2: { state: "approved" } }, tickets: ticketsProgress, ...extra,
+}, { all: true });
+
+test("all reconstructs batches from the beginning and labels current closed, active and blocked slices", () => {
+  const tickets = [ticket("00"), ticket("01", ["00"]), ticket("02", ["00"]), ticket("03", ["01", "02"]), ticket("04", ["03"])];
+  const progress = { "00": { status: "done", branch: "ticket/demo-00" }, "01": { status: "in_progress" } };
+  const result = allPlan(tickets, progress);
+  assert.equal(renderSlicePlan(result), "Slice 1 [closed]: 00\nSlice 2 [in-flight]: 01, 02\nSlice 3 [blocked]: 03\nSlice 4 [blocked]: 04");
+  const finished = Object.fromEntries(tickets.map(({ id }) => [id, { status: "done" }]));
+  assert.deepEqual(allPlan(tickets, finished).slices, result.slices);
+  assert.deepEqual(allPlan(tickets, finished).statuses, ["closed", "closed", "closed", "closed"]);
+  assert.deepEqual(allPlan([...tickets].reverse(), progress), result);
+  assert.deepEqual(plan(tickets, { tickets: progress }).slices, [["01", "02"], ["03"], ["04"]]);
+});
+
+test("all keeps review and reopened work active and uses ready guards without treating future batches as ready", () => {
+  const tickets = [ticket("00"), ticket("01", ["00"], ["shared"]), ticket("02", ["00"], ["shared"]), ticket("03", ["00"], [], ["01"]), ticket("04", ["00"])];
+  const progress = { "00": { status: "done" }, "01": { status: "review" }, "04": { blockers: ["Access needed"] } };
+  const result = allPlan(tickets, progress);
+  assert.deepEqual(result.statuses, ["closed", "in-flight", "blocked"]);
+  assert.deepEqual(allPlan([ticket("00")]).statuses, ["in-flight"]);
+  assert.deepEqual(allPlan([ticket("00")], {}, { blockers: ["Access needed"] }).statuses, ["blocked"]);
+  assert.deepEqual(allPlan([ticket("00")], {}, { gates: {} }).statuses, ["blocked"]);
+  assert.deepEqual(allPlan([ticket("00")], { "00": { status: "review", prs: [{ state: "merged" }] } }).statuses, ["closed"]);
+  assert.deepEqual(allPlan([ticket("00")], { "00": { status: "in_progress", reopened: true, prs: [{ state: "merged" }] } }).statuses, ["in-flight"]);
+  assert.deepEqual(allPlan([ticket("00"), ticket("01")], { "00": { status: "done" }, "01": { blockers: ["Access needed"] } }).statuses, ["blocked"]);
+});
+
+test("all retains empty-project and invalid-dependency reporting without changing saved data", () => {
+  assert.equal(renderSlicePlan(allPlan([])), "No slices.");
+  const tickets = [ticket("00"), ticket("01", ["99"]), ticket("02", ["03"]), ticket("03", ["02"])];
+  const snapshot = { tickets, prog: normalizeProgress({ gates: { G2: { state: "approved" } }, tickets: { "00": { status: "done" } } }) };
+  const before = structuredClone(snapshot);
+  const result = slicePlan(snapshot, { all: true });
+  assert.deepEqual(snapshot, before);
+  assert.deepEqual(result.slices, [["00"]]);
+  assert.equal(result.blocked.length, 3);
+  const branches = { "00": "ticket/demo-00", "01": "ticket/demo-01" };
+  const output = renderSlicePlan({ ...result, branches });
+  assert.doesNotMatch(output, /ticket\/demo-/);
+  assert.match(output, /Ticket 01: blocked by 99/);
+  assert.match(renderSlicePlan(result), /Slice 1 \[closed\].*Cannot schedule.*Ticket 01: blocked by 99/s);
+});
 
 test("dependencies and asymmetric unsafe pairs split batches; shared modules do not", () => {
   const tickets = [ticket("00"), ticket("07", ["00"], ["a"]), ticket("42", ["00"], ["b"]),

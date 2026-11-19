@@ -36,7 +36,8 @@ export function laneOptions(snapshot, repo, owner, logic) {
       catch (e) { reason = clean(e.message).replace(/^no ready ticket:\s*/, "").replace(new RegExp(`^${t.id}:\\s*`), ""); }
     }
     const warning = !selectable;
-    const label = `${t.id} · ${clean(t.title)} · ${warning ? `WARNING (${state.toUpperCase()})` : state.toUpperCase()}${reason ? " — " + clean(reason) : ""}`;
+    const branch = clean(saved.branch);
+    const label = `${t.id} · ${clean(t.title)}${branch ? ` (${branch})` : ""} · ${warning ? `WARNING (${state.toUpperCase()})` : state.toUpperCase()}${reason ? " — " + clean(reason) : ""}`;
     return { id: t.id, state, reason, warning, selectable: true, label };
   }).sort((a, b) => Number(a.warning) - Number(b.warning) || a.id.localeCompare(b.id));
 }

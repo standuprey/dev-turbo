@@ -1,4 +1,4 @@
-/** Shows remaining parallel batches from saved tickets, without starting work or calling the model. */
+/** Shows parallel batches from saved tickets, without starting work or calling the model. */
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,10 +19,12 @@ export default async function (pi: ExtensionAPI) {
     return box;
   });
   pi.registerCommand("dt-slice-plan", {
-    description: "Show all remaining parallel ticket batches from saved dependencies and conflicts (no model call)",
+    description: "Show remaining parallel ticket batches, or all batches with status (no model call)",
+    getArgumentCompletions: (prefix) => "all".startsWith(prefix) ? [{ value: "all", label: "all", description: "Show every slice with its current status" }] : null,
     handler: async (args, ctx) => {
-      if (args.trim()) {
-        ctx.ui.notify("Usage: /dt-slice-plan. Switch projects with /dt-resume [slug].", "warning");
+      const option = args.trim();
+      if (option && option !== "all") {
+        ctx.ui.notify("Usage: /dt-slice-plan [all]. Switch projects with /dt-resume [slug].", "warning");
         return;
       }
       const branch = ctx.sessionManager.getBranch();
@@ -36,7 +38,7 @@ export default async function (pi: ExtensionAPI) {
         const repo = logic.resolveRepo(ctx.cwd);
         const project = restoreProject(branch, repo);
         if (!project) throw new Error("The saved project does not match this repository. Select it with /dt-resume.");
-        const plan = slicePlan(logic.readFeatureStatus(repo, project.slug));
+        const plan = slicePlan(logic.readFeatureStatus(repo, project.slug), { all: option === "all", pickReady: logic.pickReady });
         pi.sendMessage({ customType: MESSAGE, content: renderSlicePlan(plan), display: true, details: { slug: project.slug, ...plan } });
       } catch (error) {
         ctx.ui.notify(`dt-slice-plan: ${error instanceof Error ? error.message : String(error)}`, "error");

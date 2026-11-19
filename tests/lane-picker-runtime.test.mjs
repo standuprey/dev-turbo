@@ -17,7 +17,7 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   const project = { slug: "demo", tier: "T2", type: "service", key: repo.key, base };
   await mkdir(join(featureDir, "tickets"), { recursive: true });
   await writeFile(join(featureDir, "feature.json"), JSON.stringify(project));
-  const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "01": { status: "in_progress", lane: "lane 2", claim: { owner: "other", checkout: "/lane2" } }, "03": { status: "review" }, "04": { status: "done" } } });
+  const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "01": { status: "in_progress", branch: "ticket/demo-01", lane: "lane 2", claim: { owner: "other", checkout: "/lane2" } }, "03": { status: "review", branch: "custom-review-branch" }, "04": { status: "done" } } });
   await writeFile(join(featureDir, "progress.json"), progress);
   for (const id of ["01", "02", "03", "04"]) await writeFile(join(featureDir, "tickets", `${id}.md`), `---\nid: "${id}"\ntitle: Ticket ${id}\ntouches: [module${id}]\nblocked_by: []\nunsafe_with: []\n---\n`);
   await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
@@ -59,10 +59,14 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   const input = (text) => handlers.get("input")({ text, source: "interactive" }, ctx);
   assert.equal((await input("/dt-lane")).text, "/dt-lane demo 02");
   assert.match(selections[0].labels.find((s) => s.startsWith("01")), /LOCKED.*other.*\/lane2/);
+  assert.ok(selections[0].labels.find((s) => s.startsWith("01")).includes("Ticket 01 (ticket/demo-01)"));
+  assert.ok(selections[0].labels.find((s) => s.startsWith("03")).includes("Ticket 03 (custom-review-branch)"));
+  assert.ok(selections[0].labels.find((s) => s.startsWith("02")).includes("Ticket 02 · READY"));
   assert.equal((await input("/dt-lane 02")).text, "/dt-lane demo 02");
   assert.equal(selections.length, 1);
   assert.equal(confirmations.length, 2);
   assert.match(messages.at(-1).content, /02 · Ticket 02/);
+  assert.doesNotMatch(messages.at(-1).content, /Ticket 02 \(.*\)/);
   assert.doesNotMatch(messages.at(-1).content, /title:|touches:/);
   assert.match(messages.at(-1).content, /\/dt-status 02/);
   confirmed = false;
@@ -76,6 +80,9 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   assert.equal((await input("/dt-lane")).text, "/dt-lane demo 01 override");
   assert.match(confirmations.at(-1).title, /Start anyway/);
   assert.match(confirmations.at(-1).body, /claimed by other/);
+  assert.ok(confirmations.at(-1).title.includes("ticket 01 (ticket/demo-01)"));
+  assert.ok(confirmations.at(-1).body.includes("Ticket 01 (ticket/demo-01)"));
+  assert.ok(messages.at(-1).content.includes("Ticket 01 (ticket/demo-01)"));
   confirmed = false;
   assert.equal((await input("/dt-lane 01 override")).action, "handled");
   confirmed = true;
@@ -110,10 +117,11 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   await show("99");
   assert.match(notices.at(-1), /No ticket 99/);
   await show("../01");
-  assert.match(notices.at(-1), /Usage/);
+  assert.match(notices.at(-1), /No ticket saved for branch/);
   assert.equal(messages.length, messageCount);
   await show("");
-  assert.match(messages.at(-1).content, /Tickets left/);
+  assert.match(messages.at(-1).content, /^\| ID \| Ticket \| State \| Saved verification \| Notes \|/);
+  assert.deepEqual(messages.at(-1).content.split("\n").slice(2).map((line) => line.split("|")[1].trim()), ["01", "02", "03"]);
   assert.equal(confirmations.length, confirmationCount, "dt-status must never ask to start work");
   assert.equal(await readFile(join(featureDir, "progress.json"), "utf8"), progress);
   assert.equal(entries.length, 1);

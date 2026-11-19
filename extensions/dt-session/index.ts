@@ -36,7 +36,7 @@ export default async function (pi: ExtensionAPI) {
 	let approvedStart: { project: Project; session: string; cwd: string; ticketContent: string } | undefined;
 	pi.events.on("dt:lane:approved", (request: { project: Project; ctx: ExtensionContext; ticketContent: string; accepted: boolean }) => {
 		refreshSelection(request.ctx);
-		if (!project || project.scopeId !== request.project.scopeId || !["T0", "T1"].includes(project.tier)) return;
+		if (!project || project.scopeId !== request.project.scopeId || project.tier !== "T0") return;
 		approvedStart = { project, session: request.ctx.sessionManager.getSessionId(), cwd: request.ctx.cwd, ticketContent: request.ticketContent };
 		request.accepted = true;
 	});
@@ -234,7 +234,8 @@ export default async function (pi: ExtensionAPI) {
 			const dir = join(r.featuresBase, params.slug);
 			const tickets = existsSync(join(dir, "tickets")) ? readdirSync(join(dir, "tickets")).filter((f) => f.endsWith(".md")) : [];
 			if (!tickets.length) throw new Error(`Write the ticket files to ${join(dir, "tickets")} before proposing the plan.`);
-			if (params.tier !== "T2" && tickets.length !== 1) throw new Error("A T0/T1 plan is exactly one ticket (00). Choose T2 for more tickets.");
+			if (params.tier === "T0" && tickets.length !== 1) throw new Error("A T0 plan is exactly one ticket (00). Choose T1 or T2 for more tickets.");
+			if (params.tier === "T1" && tickets.length > 5) throw new Error("A T1 plan has at most 5 tickets. Choose T2 for more.");
 			if (params.tier === "T2" && !existsSync(join(dir, "spec.md"))) throw new Error(`Write the brief to ${join(dir, "spec.md")} before proposing a T2 plan.`);
 			repo = r;
 			repoCwd = ctx.cwd;

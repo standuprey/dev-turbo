@@ -40,6 +40,18 @@ test("selected project's current ticket files supply IDs, titles and next", asyn
 	assert.equal(items[1].description, "Ship checkout");
 	assert.deepEqual(values(await completeArguments("dt-status", "0", get, selected)), ["00", "07"]);
 	assert.equal(await completeArguments("dt-status", "07 force", get, selected), null);
+	assert.deepEqual(values(await completeArguments("dt-status", "", get, selected)), ["00", "07", "lane", "all"]);
+	assert.deepEqual(values(await completeArguments("dt-status", "la", get, selected)), ["lane"]);
+	assert.equal(await completeArguments("dt-status", "lane extra", get, selected), null);
+	assert.deepEqual(values(await completeArguments("dt-status", "a", get, selected)), ["all"]);
+	assert.equal(await completeArguments("dt-status", "all extra", get, selected), null);
+	await writeFile(join(base, "checkout", "progress.json"), JSON.stringify({ tickets: { "00": { branch: "quick/checkout", status: "done" }, "07": { branch: "ov_777_ship_checkout", status: "review" }, "99": { branch: "orphan-branch" } } }));
+	assert.deepEqual(values(await completeArguments("dt-status", "quick/", get, selected)), ["quick/checkout"]);
+	assert.deepEqual(values(await completeArguments("dt-status", "ov_", get, selected)), ["ov_777_ship_checkout"]);
+	assert.equal(await completeArguments("dt-status", "orphan", get, selected), null);
+	assert.equal(await completeArguments("dt-review", "ov_", get, selected), null);
+	await writeFile(join(base, "checkout", "progress.json"), "bad JSON");
+	assert.deepEqual(values(await completeArguments("dt-status", "0", get, selected)), ["00", "07"]);
 	assert.deepEqual(values(await completeArguments("dt-lane", "", get, { ...selected, tier: "T1" })), ["00", "07"]);
 	assert.deepEqual(values(await completeArguments("dt-review", "0", get, selected)), ["00", "07"]);
 	assert.deepEqual(values(await completeArguments("dt-staging-test", "0", get, selected)), ["00", "07"]);

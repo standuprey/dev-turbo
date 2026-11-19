@@ -198,7 +198,7 @@ test("closing an overridden main-checkout start never removes that checkout", (t
 
 test("legacy quick-plan approval is honored by preflight and normal starts", (t) => {
   const f = fixture(t);
-  fs.writeFileSync(path.join(f.feature, "feature.json"), JSON.stringify({ slug: "demo", tier: "T1", type: "service" }));
+  fs.writeFileSync(path.join(f.feature, "feature.json"), JSON.stringify({ slug: "demo", tier: "T0", type: "service" }));
   fs.unlinkSync(path.join(f.feature, "tickets/01.md"));
   fs.unlinkSync(path.join(f.feature, "tickets/02.md"));
   f.save({ gates: { G0: { state: "approved" } } });
@@ -207,7 +207,7 @@ test("legacy quick-plan approval is honored by preflight and normal starts", (t)
   assert.equal(fs.readFileSync(f.progressFile, "utf8"), before);
   f.ok(f.main, "next", "demo", "--ticket", "00", "--owner", "here");
   assert.equal(f.progress().gates.G2.state, "approved");
-  assert.equal(f.git(f.main, "branch", "--show-current"), "quick/demo");
+  assert.equal(f.git(f.main, "branch", "--show-current"), "main", "T0 stays on the current branch");
 });
 
 test("override remains explicit and cannot bypass missing IDs, owners or corrupt data", (t) => {

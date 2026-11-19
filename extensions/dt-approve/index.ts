@@ -31,7 +31,7 @@ export default async function (pi: ExtensionAPI) {
 			const planFiles = planDir ? [join(planDir, "spec.md"), ...(existsSync(join(planDir, "tickets")) ? (await readdir(join(planDir, "tickets"))).filter((f) => f.endsWith(".md")).sort().map((f) => join(planDir, "tickets", f)) : [])] : [];
 			const files = scope ? planFiles : snapshot ? [snapshot.p.feature, snapshot.p.progress, snapshot.p.spec, ...snapshot.tickets.map((t: { file: string }) => t.file)] : [];
 			const contents = await Promise.all(files.map(async (file: string) => { try { return await readFile(file, "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return "missing"; throw e; } }));
-			if (scope && ["T0", "T1"].includes(scope.tier)) quickTicketContent = contents[files.findIndex((file: string) => file.includes(`${join(planDir!, "tickets")}/`))];
+			if (scope?.tier === "T0") quickTicketContent = contents[files.findIndex((file: string) => file.includes(`${join(planDir!, "tickets")}/`))];
 			revision = createHash("sha256").update(JSON.stringify({ scope, project, contents })).digest("hex");
 		}
 		return { logic, repo, branch, project, scope, snapshot, revision, quickTicketContent, existingScope: Boolean(scopeFeature) };
@@ -57,7 +57,7 @@ export default async function (pi: ExtensionAPI) {
 		if (lock) { try { await rmdir(lock); } catch { ctx.ui.notify(`Approval lock could not be removed: ${lock}`, "warning"); } }
 	};
 	pi.registerCommand("dt-approve", {
-		description: "Approve a plan; also start ticket 00 for a new T0/T1 project",
+		description: "Approve a plan; also start ticket 00 for a new T0 project",
 		getArgumentCompletions: async (prefix) => {
 			if (!currentCtx) return null;
 			try { return approvalCompletions(await view(currentCtx), prefix); } catch { return null; }
@@ -75,8 +75,8 @@ export default async function (pi: ExtensionAPI) {
 				const session = ctx.sessionManager.getSessionId();
 				const plan = approvalPlan(initial, name, rest);
 				const title = NAMES[plan.name].label;
-				const startQuick = plan.id === 0 && ["T0", "T1"].includes(plan.tier);
-				const startNote = startQuick ? "\nApproval also starts ticket 00 in the current checkout. Start warnings require a separate decision." : "";
+				const startQuick = plan.id === 0 && plan.tier === "T0";
+				const startNote = startQuick ? "\nApproval also starts ticket 00 on the current branch of the current checkout, without committing. Start warnings require a separate decision." : "";
 				const extra = plan.id === 0 ? `\nConfirm project name: ${plan.slug}\n${plan.tier} · ${plan.type}` : "";
 				const summary = (plan.id === 0 ? plan.note : initial.snapshot.prog.gates.G2?.note) || "Review the saved plan before confirming.";
 				if (!await ctx.ui.confirm(`Approve ${title}${startQuick ? " and start ticket 00" : ""}?`, `${plan.slug}${extra}\n${summary}${startNote}`)) return;
@@ -108,6 +108,30 @@ export default async function (pi: ExtensionAPI) {
 				await releaseLock(lock, ctx);
 				busy = false;
 			}
+		},
+	});
+
+	pi.registerCommand("dt-close", {
+		description: "Force close an active ticket: /dt-close <ticket> <reason>",
+		handler: async (args, ctx) => {
+			currentCtx = ctx;
+			const match = args.trim().match(/^(\d{1,2})\s+(\S[\s\S]*)$/);
+			if (!match) { ctx.ui.notify("Usage: /dt-close <ticket> <reason>", "warning"); return; }
+			const id = match[1].padStart(2, "0"), reason = match[2];
+			if (busy || !ctx.isIdle()) { ctx.ui.notify("Finish or stop the current task before closing its ticket.", "warning"); return; }
+			busy = true;
+			const session = ctx.sessionManager.getSessionId();
+			try {
+				const { logic, repo, project, snapshot } = await view(ctx);
+				if (currentCtx?.sessionManager.getSessionId() !== session || JSON.stringify(restoreProject(ctx.sessionManager.getBranch(), repo)) !== JSON.stringify(project)) throw new Error("Session or project changed. Run /dt-close again.");
+				if (!project || !snapshot) throw new Error("No dev-turbo project selected. Run /dt-resume [slug].");
+				logic.forceCloseTicket(repo, project.slug, id, reason);
+				pi.sendMessage({ customType: "dt-approve", display: true, details: { gate: "close", ticket: id },
+					content: `Force closed ticket ${id}: ${reason.replace(/[\\`*_\[\]<>]/g, "\\$&")}
+
+Claim released; files, branches, PRs and issues retained. No merge or test checks ran; dependent tickets may now start. Other agents are not stopped.` });
+			} catch (e) { ctx.ui.notify(`dt-close: ${e instanceof Error ? e.message : String(e)}`, "error"); }
+			finally { busy = false; }
 		},
 	});
 

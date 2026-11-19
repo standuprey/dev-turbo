@@ -22,18 +22,20 @@ export function displayTicket(pi, project, ticket, status, progress, screenshots
 }
 
 // Keep lane confirmation compact; /dt-status <id> remains the full-ticket viewer.
-export function summarizeTicket(ticket) {
+export function summarizeTicket(ticket, branch = "") {
+  const savedBranch = String(branch || "").replace(/[\x00-\x1f\x7f]/g, " ").trim();
   const body = ticket.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "");
   const outcome = body.match(/^(?:#{1,6}[ \t]+Outcome[ \t]*:?[ \t]*|\*\*Outcome:?\*\*[ \t]*:?[ \t]*)(?:\r?\n|$)([\s\S]*)/im)?.[1];
   const text = outcome?.split(/^#{1,6}\s|^\*\*[^*\n]+\*\*/m)[0].replace(/\s+/g, " ").trim();
   const summary = text && (text.length > 400 ? `${text.slice(0, 397).trimEnd()}…` : text);
-  return [`${ticket.id} · ${ticket.title}`, summary, `Full ticket: /dt-status ${ticket.id}`].filter(Boolean).join("\n\n");
+  return [`${ticket.id} · ${ticket.title}${savedBranch ? ` (${savedBranch})` : ""}`, summary, `Full ticket: /dt-status ${ticket.id}`].filter(Boolean).join("\n\n");
 }
 
 export async function confirmTicket({ pi, ctx, project, snapshot, id, force = false, override = false, warnings = [], approvedContent }) {
   const ticket = await readTicketPreview(snapshot, id);
   if (approvedContent !== undefined && ticket.content !== approvedContent) throw new Error("Ticket changed after plan approval. Run /dt-lane 00 to review it before starting.");
-  const summary = summarizeTicket(ticket);
+  const branch = String(snapshot.prog?.tickets?.[ticket.id]?.branch || "").replace(/[\x00-\x1f\x7f]/g, " ").trim();
+  const summary = summarizeTicket(ticket, branch);
   displayTicket(pi, project, { ...ticket, content: summary });
   // The initial single-ticket approval already confirmed this start, but not overrides.
   if (approvedContent !== undefined && !warnings.length && !force && !override) return true;
@@ -49,7 +51,7 @@ export async function confirmTicket({ pi, ctx, project, snapshot, id, force = fa
   }
   // Keep terminal styling out of RPC dialog text.
   const emphasize = (text) => text && ctx.mode === "tui" ? ctx.ui.theme.bold(ctx.ui.theme.fg("error", text)) : text;
-  const title = `${warnings.length || override ? "Start anyway" : "Start/resume"} ticket ${ticket.id} · ${project.slug}?`;
+  const title = `${warnings.length || override ? "Start anyway" : "Start/resume"} ticket ${ticket.id}${branch ? ` (${branch})` : ""} · ${project.slug}?`;
   const risks = `${warningText}${overrideText}${force ? "This will request a force takeover; it does not stop the previous agent.\n" : ""}`;
   const confirmed = await ctx.ui.confirm(risks ? emphasize(title) : title,
     `${summary}\n\n${emphasize(risks)}${warnings.length || override ? "Start anyway and accept these warnings?" : "Is this the ticket you want to work on?"}`);

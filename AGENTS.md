@@ -1,52 +1,51 @@
 # dev-turbo PR conventions
 
+Keep this file aligned between `~/code/dev-turbo/AGENTS.md` and `~/.pi/agent/dt/AGENTS.md`.
+
 ## Branches and PRs
+- T1/T2 tickets branch `ticket/<feature>-<id>` in their own worktree; T0 tasks stay on the current branch and commit nothing.
+- Keep saved branches and published PR URLs; do not close or recreate a PR just to rename its head without asking.
+- Target the main branch. Split work keeps only its own commits in each PR; ask before using another base or a stack.
 
-- T2 tickets branch `ticket/<feature>-<id>` in their own worktree; T0/T1 tasks use `quick/<slug>` in the current checkout.
-- `dt.mjs` uses the branch saved in ticket progress for resume, lane display, PR creation and cleanup. Preserve saved branches and published PR URLs; do not close/recreate an existing PR solely to rename its head without asking.
-- Target the repository's main branch by default. When work is split into multiple PRs, isolate each PR's own commits onto it; ask before choosing another base or introducing a stack.
-
-Keep this guidance aligned between `~/code/dev-turbo/AGENTS.md` and `~/.pi/agent/dt/AGENTS.md`.
+## Ticket size
+Any ticket line limit counts net growth: `added lines - removed lines`, summed across all files in the full ticket diff against the merge base with its PR base branch. Never use `added lines + removed lines`, an absolute value or per-commit churn; replacements cancel and negative counts stay negative. For example, 900 added lines and 800 removed lines count as 100, not 1700. Scope boundaries and required checks still apply.
 
 ## Testing scope
-
-Keep testing light: aim for a small essential regression suite, not 100% test coverage or a coverage percentage target. Reuse existing tests and add only what protects the changed behavior, reproduces a fixed bug, or guards a concrete high-risk failure (for example data loss, permissions or backward compatibility). Test at the most useful boundary; do not duplicate the same assertion across unit, integration and end-to-end layers or add tests for every helper, defensive branch or theoretical edge case. Red/green development applies to these essential tests, not an exhaustive suite. Run affected checks; reserve broader suites for shared changes or concrete regression risks. Preserve existing assertions and required repository checks; this is not permission to weaken tests or skip safety-critical cases.
+Aim for a small essential regression suite, not 100% test coverage or a coverage percentage target. Add tests only for changed behavior, fixed bugs or concrete high-risk failures (data loss, permissions, backward compatibility), at the most useful boundary, without duplicating assertions across layers. Run affected checks; broader suites only for shared changes or concrete regression risks. Preserve existing assertions, safety-critical cases and required repository checks.
 
 ## Supporting tests and fixtures
+Necessary tests, shared fixtures and test-only build wiring may be updated outside `touches` without `/dt-revise`; record those paths and run their checks. Never weaken assertions, relax validation or change public contracts to make tests pass.
 
-Necessary tests, shared fixtures and test-only build wiring may be read and updated outside `touches` when required to verify the ticket outcome or keep mirrored fixtures synchronized. Do not block or request `/dt-revise` solely because these supporting files are outside `touches`. Do not weaken assertions, relax validation or change public contracts to make tests pass. Actual concurrent ownership conflicts still require coordination; this exception does not bypass lane claims or authorize unrelated production changes. Record the supporting paths and run their affected checks.
+## Standalone wording
+Code, comments, test names, commit messages and PR titles/bodies must stand on their own, and so does shipped documentation. Never reference the dev-turbo plan, spec, tickets, slices or gates. Describe current behavior and technical reasons. Workflow references belong only in dev-turbo planning artifacts, saved progress and command/gate handovers; issue links and concrete PR sequencing are fine. Write `/** Reads stored v1 brand configurations. */`, not a comment promising v2 decoding later.
 
-## Standalone implementation wording
+## Writing descriptions
+Applies to issue and PR descriptions and replies to the user. Write for someone who knows the product, not the code.
+- One short line per change, starting with what the user sees or can do: "Add brand workspace nav (left sidebar) + empty state for each screen".
+- Say what stays the same in a few words when it matters: "Keep device list and management the same as v1".
+- Use everyday product words. Leave out routes, file paths, type and function names, and workflow terms (session, codec, port, slice, gate) unless the reader needs them.
+- Leave out acceptance checks, edge cases, test plans, verification and pending work. Those belong in the ticket's Done when and `progress.json`.
+- If a line lists several things or needs "and" twice, split it or cut it.
 
-Code, comments, test names, commit messages and PR titles/bodies must stand on their own. Never reference the dev-turbo plan, spec, tickets, slices or gates, or assume readers know the workflow. Describe current behavior and technical reasons, not which workflow step introduced something or will finish it. The same rule applies to documentation shipped with the change. Workflow references belong only in dev-turbo planning artifacts, saved progress and command/gate handovers; required issue links and concrete PR sequencing remain allowed.
-
-For example, write `/** Reads stored v1 brand configurations. */`, not a comment promising v2 decoding in the next slice.
+```markdown
+- Add brand workspace nav (left sidebar) + empty state for each screen
+- Keep device list and management the same as v1
+```
 
 ## PR description format
-
+These rules take precedence over general response formatting rules.
 - Use only `## Description` and `## Testing`.
-- `dt.mjs pr` titles T2 ticket PRs `<feature> <ID>: <ticket-title>` and T0/T1 PRs with the ticket title alone; it adds `Closes #<issue>` for the ticket's GitHub issue.
-- Write a few short bullets about what this PR changes. No fixed bullet count and no filler.
-- Use plain, natural language and short sentences. Assume readers know the subject; skip jargon, unsolicited definitions and tutorials.
-- Describe concrete changes and outcomes, not abstract labels. Use everyday words without losing technical accuracy. Say the main point first; readers can get details from the code.
-- These PR formatting rules take precedence over general response limits and formatting rules. Keep workflow replies direct, with no preamble or recap.
-- Do not describe test implementation in Description. Writing tests is part of the work.
-- Never mention what is not done in the PR body: no pending work, unverified checks, exclusions or missing features. Keep those facts in `progress.json`, not the description.
-- Add `**Sequencing:** Merge after #123.` only when specific PRs really must merge first. Otherwise omit sequencing. No generic rollout, deployment or gate instructions.
-- Start Testing with exactly `unit tests + staging tests`. This states the testing plan, not a claim that both have run.
-- Add one short staging test suggestion: what to do and what to check.
-- After a passed `/dt-staging-test`, replace the suggestion with 3 to 6 short bullets naming the staging checks that passed. No commands, counts, IDs or evidence paths.
-- If curl, browser or another specific check was actually run, mention it in one simple bullet. No command dumps, test counts, implementation details or long verification records.
-- Do not add CLI warnings, release-safety sections or hidden release-safety JSON.
-- `dt.mjs pr` requires a short `--body-file <file>`. Preserve user-edited descriptions unless asked to change them.
-
-Example:
+- Description: one short line per change, following "Writing descriptions". No test implementation, pending work, unverified checks or exclusions; those stay in `progress.json`.
+- Add `**Sequencing:** Merge after #123.` only when specific PRs must merge first.
+- Testing starts with exactly `unit tests + staging tests`, then one short suggested staging test: what to do and what to check. After a passed `/dt-staging-test`, replace the suggestion with 3 to 6 short bullets naming the passed checks. A curl or browser check that actually ran may get one simple bullet. No commands, counts, IDs, evidence paths or release-safety sections.
+- `dt.mjs pr` sets the title (`<feature> <ID>: <ticket-title>`), adds `Closes #<issue>` and needs a short `--body-file`. Preserve user-edited descriptions.
 
 ```markdown
 ## Description
-- Show item counts in the Brands list.
+- Add brand workspace nav (left sidebar) + empty state for each screen
+- Keep device list and management the same as v1
 
 ## Testing
 unit tests + staging tests
-- Suggested staging test: Open Brands and check the count for a known brand.
+- Suggested staging test: Open a brand, switch sidebar sections, then add and remove a device.
 ```

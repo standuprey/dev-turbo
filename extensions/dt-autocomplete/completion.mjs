@@ -46,6 +46,20 @@ async function tickets(base, slug) {
 	}))).filter(Boolean);
 }
 
+async function savedBranches(base, slug, items) {
+	if (!safeSlug(slug)) return [];
+	try {
+		const progress = JSON.parse(await readFile(join(base, slug, "progress.json"), "utf8"));
+		const byBranch = new Map();
+		for (const ticket of items) {
+			const branch = progress.tickets?.[ticket.value]?.branch;
+			if (typeof branch !== "string" || !branch || /[\s\x00-\x1f\x7f]/.test(branch) || ["all", "lane"].includes(branch) || /^\d{1,2}$/.test(branch)) continue;
+			if (!byBranch.has(branch)) byBranch.set(branch, { value: branch, label: branch, description: `${ticket.value} · ${ticket.description}` });
+		}
+		return [...byBranch.values()];
+	} catch { return []; }
+}
+
 function match(items, query, head = "") {
 	const filtered = items.filter((item) => item.value.startsWith(query))
 		.map((item) => ({ ...item, value: head + item.value }));
@@ -71,6 +85,11 @@ export async function completeArguments(command, args, load, project = null) {
 	const data = await load();
 	if (!data || data.base !== project.base || !data.features.some((f) => f.slug === project.slug)) return null;
 	const items = await tickets(data.base, project.slug);
+	if (command === "dt-status") items.push(
+		...await savedBranches(data.base, project.slug, items),
+		{ value: "lane", label: "lane", description: "Show the current lane’s ticket and saved progress" },
+		{ value: "all", label: "all", description: "Show the saved board including closed tickets" },
+	);
 	return match(items, args);
 }
 

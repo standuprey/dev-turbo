@@ -161,7 +161,8 @@ test("a feature resumes from its folder alone: gates, progress and briefs", () =
   const brief = ok("resume", "f", "--no-gh");
   assert.match(brief, /in flight 1 \(00 review\)/);
   assert.match(brief, /PRs: #12 \(not checked\)/);
-  assert.match(brief, /Next:\*\* 00: run the staging check/);
+  assert.match(brief, /Next: run the staging check/);
+  assert.match(brief, /Next:\*\* \/dt-review f 00/);
   assert.match(ok("resume", "f", "--no-gh", "--prompt"), /never edit progress.json by hand/);
 
   assert.match(ok("gate", "f", "3", "approve", "--ticket", "00"), /next: \/dt-lane f/);
@@ -177,8 +178,8 @@ test("existing pure-logic selftest still works", () => {
   assert.match(result.stdout, /all good/);
 });
 
-test("a T0/T1 ticket branches quick/<slug> in the current checkout, ignoring uncommitted feature docs", () => {
-  const dir = fs.mkdtempSync(path.join(sandbox, "quick-"));
+test("a T1 ticket runs in its own worktree like T2, without a spec", () => {
+  const dir = fs.mkdtempSync(path.join(sandbox, "t1-"));
   const remote = path.join(dir, "remote.git"), repo = path.join(dir, "repo"), state = path.join(dir, "state");
   const env = { ...process.env, DT_DIR: state, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
   const git = (...args) => { const r = spawnSync("git", args, { cwd: fs.existsSync(repo) ? repo : dir, env, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
@@ -192,15 +193,53 @@ test("a T0/T1 ticket branches quick/<slug> in the current checkout, ignoring unc
   const feature = path.join(repo, "docs", "features", "fix-copy");
   fs.mkdirSync(path.join(feature, "tickets"), { recursive: true });
   fs.writeFileSync(path.join(feature, "tickets", "00-fix.md"), '---\nid: "00"\ntitle: Fix button copy\ntouches: [ui]\n---\n**Outcome**\nThe button says Save.\n');
-  assert.match(ok("gate", "fix-copy", "0", "approve", "--tier", "T0", "--type", "web"), /next: \/dt-lane fix-copy/);
-  fs.writeFileSync(path.join(repo, "stray.txt"), "x");
-  assert.match(dt("next", "fix-copy", "--owner", "a").stderr, /not clean/);
-  fs.rmSync(path.join(repo, "stray.txt"));
-  assert.match(ok("next", "fix-copy", "--owner", "a"), /on quick\/fix-copy/);
-  assert.equal(git("branch", "--show-current"), "quick/fix-copy");
+  fs.writeFileSync(path.join(feature, "tickets", "01-help.md"), '---\nid: "01"\ntitle: Explain saving\nblocked_by: ["00"]\ntouches: [ui]\n---\n**Outcome**\nA hint explains saving.\n');
+  // Plan approval creates GitHub issues; this repository has no GitHub remote, so the approval is saved directly.
+  fs.writeFileSync(path.join(feature, "feature.json"), JSON.stringify({ slug: "fix-copy", tier: "T1", type: "web" }));
+  fs.writeFileSync(path.join(feature, "progress.json"), JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } } }));
+  git("add", "docs");
+  git("commit", "-m", "plan");
+  git("push", "origin", "main");
+  assert.match(ok("next", "fix-copy", "--owner", "a"), /open pi in .*repo\.lane-00/);
+  assert.equal(git("branch", "--show-current"), "main");
+  const lane = path.join(dir, "repo.lane-00");
+  assert.equal(git("-C", lane, "branch", "--show-current"), "ticket/fix-copy-00");
   const saved = JSON.parse(fs.readFileSync(path.join(feature, "progress.json"), "utf8")).tickets["00"];
-  assert.deepEqual([saved.branch, saved.worktree, saved.status], ["quick/fix-copy", undefined, "in_progress"]);
-  assert.equal(fs.existsSync(path.join(dir, "repo.lane-00")), false);
+  assert.deepEqual([saved.branch, saved.status, fs.realpathSync(saved.worktree)], ["ticket/fix-copy-00", "in_progress", fs.realpathSync(lane)]);
   const body = path.join(dir, "pr.md"); fs.writeFileSync(body, "## Description\n- Fix copy.\n\n## Testing\nunit tests + staging tests\n");
-  assert.match(ok("pr", "fix-copy", "00", "--owner", "a", "--body-file", body, "--dry-run"), /--title "Fix button copy"/);
+  const pr = spawnSync(process.execPath, [script, "pr", "fix-copy", "00", "--owner", "a", "--body-file", body, "--dry-run"], { cwd: lane, env, encoding: "utf8" });
+  assert.equal(pr.status, 0, pr.stderr);
+  assert.match(pr.stdout, /--title "fix-copy 00: Fix button copy"/);
+});
+
+test("a T0 ticket stays on the current branch and leaves uncommitted work alone", () => {
+  const dir = fs.mkdtempSync(path.join(sandbox, "local-"));
+  const remote = path.join(dir, "remote.git"), repo = path.join(dir, "repo"), state = path.join(dir, "state");
+  const env = { ...process.env, DT_DIR: state, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
+  const git = (...args) => { const r = spawnSync("git", args, { cwd: fs.existsSync(repo) ? repo : dir, env, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  git("init", "--bare", "--initial-branch=main", remote);
+  git("clone", remote, repo);
+  git("commit", "--allow-empty", "-m", "init");
+  git("push", "origin", "main");
+  git("switch", "-c", "my-work");
+  fs.mkdirSync(state);
+  const dt = (...args) => spawnSync(process.execPath, [script, ...args, "--no-fetch"], { cwd: repo, env, encoding: "utf8" });
+  const ok = (...args) => { const r = dt(...args); assert.equal(r.status, 0, `${args.join(" ")}: ${r.stderr}`); return r.stdout; };
+  const feature = path.join(repo, "docs", "features", "fix-typo");
+  fs.mkdirSync(path.join(feature, "tickets"), { recursive: true });
+  fs.writeFileSync(path.join(feature, "tickets", "00-fix.md"), '---\nid: "00"\ntitle: Fix typo\ntouches: [ui]\n---\n**Outcome**\nThe label is spelled right.\n');
+  ok("gate", "fix-typo", "0", "approve", "--tier", "T0", "--type", "web");
+  const head = git("rev-parse", "HEAD");
+  fs.writeFileSync(path.join(repo, "edit.txt"), "uncommitted");
+  assert.match(ok("next", "fix-typo", "--ticket", "00", "--owner", "a"), /on the current branch my-work/);
+  const saved = () => JSON.parse(fs.readFileSync(path.join(feature, "progress.json"), "utf8")).tickets["00"];
+  assert.deepEqual([saved().branch, saved().worktree, saved().status, saved().claim.owner], [undefined, undefined, "in_progress", "a"]);
+  ok("progress", "fix-typo", "--ticket", "00", "--owner", "a", "--release-claim", "--next", "finish the fix");
+  assert.match(ok("next", "fix-typo", "--ticket", "00", "--owner", "b"), /resume: already on my-work/);
+  assert.equal(saved().claim.owner, "b");
+  assert.equal(git("branch", "--show-current"), "my-work");
+  assert.equal(git("rev-parse", "HEAD"), head);
+  assert.equal(git("branch", "--list", "quick/*"), "");
+  assert.equal(git("ls-remote", "--heads", "origin", "my-work"), "");
+  assert.equal(fs.readFileSync(path.join(repo, "edit.txt"), "utf8"), "uncommitted");
 });

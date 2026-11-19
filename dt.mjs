@@ -7,7 +7,7 @@
 //   dt.mjs resume [<slug>] [--json] [--prompt] [--no-gh]    list features, or a short brief of one (refreshes PRs/issues)
 //   dt.mjs progress <slug> [--ticket ID] [updates]          show or update progress.json (current state only)
 //   dt.mjs status <slug> [--no-gh]                          kanban + DAG + unsafe pairs
-//   dt.mjs next <slug> --owner ID [--ticket ID] [--force] [--dry-run]            pick a ready ticket; T2 gets a worktree, T0/T1 branch in place
+//   dt.mjs next <slug> --owner ID [--ticket ID] [--force] [--dry-run]            pick a ready ticket; T1/T2 get a worktree, T0 stays on the current branch
 //   dt.mjs gate <slug> <0|2|3> approve|change|pending [--note "..."] [--ticket ID] [--tier T2 --type service] [--dry-run]
 //   dt.mjs pr <slug> <ID> --body-file FILE [--dry-run]
 //   dt.mjs comment --body-file FILE [--branch B] [--dry-run]
@@ -16,7 +16,7 @@
 // The feature folder is the only memory between sessions:
 //   feature.json   identity: tier, type
 //   spec.md        T2 brief: intended behavior, goals and constraints, kept current
-//   tickets/       outcome, scope and dependencies (frontmatter); T2 tickets are mirrored as GitHub issues
+//   tickets/       outcome, scope and dependencies (frontmatter); T1/T2 tickets are mirrored as GitHub issues
 //   progress.json  current state only, written by this script: gates, next step, blockers, and per ticket
 //                  status, todo, verification, PRs and issues. Old states live in git history, not in the file.
 //
@@ -223,6 +223,21 @@ function updateProgress(ctx, slug, mutate, { touch = true } = {}) {
     if (touch) prog.updated = now();
     writeJson(p.progress, compactProgress(prog));
     return prog;
+  });
+}
+
+/** Closes active local work without merge checks or deleting checkout or remote records. */
+export function forceCloseTicket(ctx, slug, id, reason) {
+  if (typeof reason !== "string" || !reason.trim()) fail("/dt-close needs a reason");
+  reason = checkText("reason", reason.trim());
+  const ticket = findTicket(loadTickets(ctx, slug), id);
+  return updateProgress(ctx, slug, (prog) => {
+    const saved = ticketOf(prog, ticket.id);
+    if (!["in_progress", "review"].includes(saved.status)) fail(`ticket ${ticket.id} is ${saved.status}; only active tickets can be force closed`);
+    const at = now();
+    Object.assign(saved, { status: "done", claim: null, next: "", updated: at,
+      acceptance: { state: "approved", forced: true, at, note: reason } });
+    prog.next = "";
   });
 }
 
@@ -471,7 +486,7 @@ export function renderBrief({ slug, feature, prog, tickets, st, phase, lanes = [
 }
 
 export function resumeInstructions({ slug, dir, next }) {
-  const where = "T2 ticket work runs in the ticket's worktree (`../<repo>.lane-<id>`); T0/T1 tickets, planning and reviews run from the main checkout.";
+  const where = "T1/T2 ticket work runs in the ticket's worktree (`../<repo>.lane-<id>`); T0 tickets, planning and reviews run from the main checkout.";
   return [`Resume the dev-turbo feature "${slug}" from the brief above. This session has no other memory of it: the feature folder is the source of truth (${dir}: feature.json, spec.md, tickets/, progress.json).`,
     "",
     `1. Next step: ${next}`,
@@ -740,15 +755,17 @@ function cmdNext(ctx, slug) {
   const cur = ctx.branch.match(new RegExp(`^ticket/${esc(slug)}-(\\d+)$`));
   const d = collect(ctx, slug, { gh: false });
   if (!d.tickets.length) fail(`no tickets for ${slug}`);
-  const quick = (d.feature.tier || "T2") !== "T2";
+  // T0 work stays uncommitted on whatever branch is checked out: no Git writes or clean-tree checks.
+  const local = d.feature.tier === "T0";
   const current = Object.entries(d.prog.tickets).find(([, t]) => t.branch && t.branch === ctx.branch)?.[0] || (cur && pad(cur[1]));
   const switching = current && d.st[current]?.status !== "done" && wanted && pad(wanted) !== current;
   enforce(switching, `this checkout is on ticket ${current}'s branch; finish it or use another lane`);
   const savedWanted = wanted && d.prog.tickets[pad(wanted)];
   const resume = !switching && current && d.st[current]?.status !== "done" ? current
-    : savedWanted?.branch && (["todo", "in_progress", "review"].includes(d.st[pad(wanted)]?.status) || override) ? pad(wanted) : null;
-  enforce(ctx.isWorktree && !resume, "run this from the main checkout, not from a lane worktree");
-  enforce((!resume || switching || force || override) && checkoutDirty(), "working tree is not clean");
+    : savedWanted?.branch && (["todo", "in_progress", "review"].includes(d.st[pad(wanted)]?.status) || override) ? pad(wanted)
+    : local && savedWanted && ["in_progress", "review"].includes(d.st[pad(wanted)]?.status) ? pad(wanted) : null;
+  enforce(ctx.isWorktree && !resume && !local, "run this from the main checkout, not from a lane worktree");
+  enforce(!local && (!resume || switching || force || override) && checkoutDirty(), "working tree is not clean");
   let t, previous, branch, where, here;
   const reserve = (prog) => {
     legacyQuickPlan(d.feature, prog);
@@ -774,16 +791,16 @@ function cmdNext(ctx, slug) {
     const checkout = e.claim?.checkout || e.worktree;
     enforce(checkout && real(checkout) !== real(ctx.root), `ticket ${t.id} belongs to checkout ${checkout}; open pi there`);
     if (!force) enforce(e.claim && e.claim.owner !== owner, `ticket claimed by ${e.claim?.owner} in ${e.claim?.checkout}; takeover does not stop the previous agent`);
-    branch = e.branch || (quick ? `quick/${slug}` : `ticket/${slug}-${t.id}`);
-    enforce(resume && (!["in_progress", "review"].includes(e.status) || ctx.branch !== branch) && checkoutDirty(), "working tree is not clean");
-    here = quick || ((override || checking) && (ctx.isWorktree || switching || (checkout && real(checkout) !== real(ctx.root)) || occupied.length));
+    branch = e.branch || (local ? "" : `ticket/${slug}-${t.id}`);
+    enforce(!local && resume && (!["in_progress", "review"].includes(e.status) || ctx.branch !== branch) && checkoutDirty(), "working tree is not clean");
+    here = local || ((override || checking) && (ctx.isWorktree || switching || (checkout && real(checkout) !== real(ctx.root)) || occupied.length));
     where = here ? ctx.root : e.worktree || (resume ? ctx.root : path.join(path.dirname(ctx.mainRoot), `${path.basename(ctx.mainRoot)}.lane-${t.id}`));
     if (!here && !resume) {
       const rel = path.relative(ctx.root, P(ctx, slug).tickets);
       enforce(git(["cat-file", "-e", `origin/${ctx.main}:${rel}`], { cwd: ctx.root, soft: true }) === null, `tickets are not on origin/${ctx.main} yet: commit and push ${rel} first`);
       enforce(fs.existsSync(where), `${where} already exists`);
     }
-    if (!quick && (ctx.isWorktree || !resume || (override && checkout))) e.worktree = where;
+    if (!local && (ctx.isWorktree || !resume || (override && checkout))) e.worktree = where;
     if (override && (e.status === "done" || (e.prs.length && e.prs.every((pr) => pr.state === "merged")))) e.reopened = true;
     Object.assign(e, { status: e.status === "review" ? "review" : "in_progress", branch,
       claim: { owner: owner || "dry-run", checkout: ctx.root, acquired: now(), ...(override ? { override: [...warnings] } : {}) }, updated: now() });
@@ -800,12 +817,14 @@ function cmdNext(ctx, slug) {
   for (const message of warnings) console.error(`WARNING (explicit override): ${message}`);
   try {
     if (resume) {
-      if (ctx.branch !== branch) {
+      if (branch && ctx.branch !== branch) {
         enforce(checkoutDirty(), "working tree is not clean");
         if (!flag("--no-fetch")) git(["fetch", "--quiet", "origin", branch], { cwd: ctx.root, soft: true });
         run("git", ["switch", ...(override ? ["--ignore-other-worktrees"] : []), branch], { cwd: ctx.root });
       }
-      console.log(`resume: already on ${branch}\n` + describe(ctx, slug, t, "") + ticketState(reserved.tickets[t.id]));
+      console.log(`resume: already on ${branch || ctx.branch || "the current checkout"}\n` + describe(ctx, slug, t, "") + ticketState(reserved.tickets[t.id]));
+    } else if (local) {
+      console.log(describe(ctx, slug, t, `on the current branch ${ctx.branch || "(detached HEAD)"}; leave changes uncommitted`));
     } else {
       if (!flag("--no-fetch")) git(["fetch", "--quiet", "origin", ctx.main], { cwd: ctx.root, soft: true });
       if (here) {
@@ -886,7 +905,10 @@ function cmdGate(ctx, slug, n, decision) {
   const p = P(ctx, slug);
   const note = checkText("note", opt("--note", "")), ticket = opt("--ticket") ? pad(opt("--ticket")) : null;
   const requirePlan = (tier) => {
-    if (!loadTickets(ctx, slug).length) fail(`no tickets in ${p.tickets}: write the plan before approving it`);
+    const count = loadTickets(ctx, slug).length;
+    if (!count) fail(`no tickets in ${p.tickets}: write the plan before approving it`);
+    if (tier === "T0" && count !== 1) fail("a T0 plan is exactly one ticket (00); choose T1 or T2 for more");
+    if (tier === "T1" && count > 5) fail("a T1 plan has at most 5 tickets; choose T2 for more");
     if (tier === "T2" && !fs.existsSync(p.spec)) fail(`no ${p.spec}: T2 plans need a brief`);
   };
   if (n === 0) {
@@ -906,8 +928,9 @@ function cmdGate(ctx, slug, n, decision) {
   }
   // GitHub side effects first, outside the lock
   let featureIssue = null, ticketIssues = {};
-  if (decision === "approve" && n !== 3 && tier === "T2") {
-    featureIssue = createFeatureIssue(ctx, slug, p, loadProgress(ctx, slug));
+  if (decision === "approve" && n !== 3 && tier !== "T0") {
+    // T1 has no brief to describe the feature, so only its tickets get issues.
+    if (tier === "T2") featureIssue = createFeatureIssue(ctx, slug, p, loadProgress(ctx, slug));
     ticketIssues = createTicketIssues(ctx, slug, p, { ...loadProgress(ctx, slug), issues: featureIssue ? [featureIssue] : loadProgress(ctx, slug).issues });
   }
   const prog = updateProgress(ctx, slug, (prog) => {
@@ -935,8 +958,8 @@ function cmdGate(ctx, slug, n, decision) {
   }
 }
 
-// A T0/T1 task is a single ticket, so its title stands alone; T2 titles name the feature and ticket.
-export const ticketPrTitle = (slug, t, tier = "T2") => tier === "T2" ? `${slug} ${t.id}: ${t.title}` : t.title;
+// A T0 task is a single local ticket, so its title stands alone; T1/T2 titles name the feature and ticket.
+export const ticketPrTitle = (slug, t, tier = "T2") => tier === "T0" ? t.title : `${slug} ${t.id}: ${t.title}`;
 
 function cmdPr(ctx, slug, id) {
   const bodyFile = opt("--body-file");
@@ -1054,7 +1077,7 @@ const HELP = {
       ["progress", "Show or update a feature's current state"],
       ["migrate-progress", "Replace legacy ticket lanes with optional worktree paths"],
       ["status", "Show the feature board"],
-      ["next", "Start a ready ticket in a worktree (T2) or branch (T0/T1)"],
+      ["next", "Start a ready ticket in a worktree (T1/T2) or on the current branch (T0)"],
       ["gate", "Record a gate decision and its follow-up actions"],
       ["pr", "Open a ticket pull request"],
       ["comment", "Post review findings on a pull request"],
@@ -1116,12 +1139,12 @@ const HELP = {
   },
   next: {
     usage: "dt.mjs next <slug> --owner ID [--ticket ID] [--force|--override] [--check-only] [--dry-run]",
-    description: "Pick a ready ticket by default. An explicit --override accepts all ticket-start policy warnings, including dependencies, shared touches, unsafe pairs, saved blockers, pending plans, ownership and checkout conflicts, or completed work. Invalid IDs/data, the progress lock and native Git errors are not bypassed.\nT2: create a worktree from the main checkout, then open pi there to resume.\nT0/T1: branch quick/<slug> in the current checkout.\nOn the ticket's branch already: print its saved state to resume from.",
+    description: "Pick a ready ticket by default. An explicit --override accepts all ticket-start policy warnings, including dependencies, shared touches, unsafe pairs, saved blockers, pending plans, ownership and checkout conflicts, or completed work. Invalid IDs/data, the progress lock and native Git errors are not bypassed.\nT1/T2: create a worktree from the main checkout, then open pi there to resume.\nT0: stay on the current branch without Git changes or clean-tree checks; changes stay uncommitted.\nOn the ticket's branch already: print its saved state to resume from.",
     options: [["--ticket ID", "Select a specific ticket instead of the first ready ticket"], ["--owner ID", "Session ID claiming this ticket atomically before branching"], ["--force", "Explicit ticket only: take over a claim in its saved checkout; does not stop the old agent"], ["--override", "Explicit ticket only: accept all start warnings; takeover does not stop other agents and does not discard local files"], ["--check-only", "Read-only start preflight: no claims, state writes or Git changes"], ["--json", "With --check-only, print the ticket ID and complete warning list as JSON"], ["--no-fetch", "Do not fetch the main branch first"], ["--dry-run", "Print Git commands instead of running them"]],
   },
   gate: {
     usage: "dt.mjs gate <slug> <0|2|3> <approve|change|pending> [options]",
-    description: "Record a gate decision in progress.json: G0 creates the project and approves its plan, G2 re-approves a revised plan, G3 closes a ticket.\nRecord pending before asking for a decision, so a new session knows a gate is waiting.\nT2 plan approval creates GitHub issues; ticket closure removes the ticket worktree.",
+    description: "Record a gate decision in progress.json: G0 creates the project and approves its plan, G2 re-approves a revised plan, G3 closes a ticket.\nRecord pending before asking for a decision, so a new session knows a gate is waiting.\nT1/T2 plan approval creates GitHub issues; ticket closure removes the ticket worktree.",
     options: [
       ["--note TEXT", "A short note kept with the gate"],
       ["--ticket ID", "Ticket being merged (required for G3)"],
@@ -1129,11 +1152,11 @@ const HELP = {
       ["--type web|device|service|cli|mixed", "Task type (required for G0)"],
       ["--dry-run", "Skip recording the gate and executing Git/GitHub commands"],
     ],
-    notes: "G0 and G2 approval need ticket files (and spec.md for T2).\nDry-run is not fully read-only: G0 still initializes feature.json.",
+    notes: "G0 and G2 approval need ticket files: exactly one for T0, at most 5 for T1, and spec.md for T2.\nDry-run is not fully read-only: G0 still initializes feature.json.",
   },
   pr: {
     usage: "dt.mjs pr <slug> <ID> --body-file FILE [--dry-run]",
-    description: "Push the current branch and open a PR ready for review.\nTicket PRs require the saved branch (ticket/<slug>-<ID> for T2; quick/<slug> for T0/T1) and are recorded in progress.json.",
+    description: "Push the current branch and open a PR ready for review.\nTicket PRs require the saved branch (ticket/<slug>-<ID> for new T1/T2 tickets) and are recorded in progress.json.",
     options: [["--body-file FILE", "Short ## Description and ## Testing: unit tests + staging tests (required)"], ["--dry-run", "Print push/PR creation commands instead of running them"]],
   },
   comment: {

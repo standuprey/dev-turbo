@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createProjectFooter } from "../extensions/dt-session/footer.mjs";
 
 const piPackage = process.env.PI_PACKAGE_DIR;
@@ -175,12 +175,12 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	const previous = process.env.DT_DIR;
 	process.env.DT_DIR = dir;
 	t.after(async () => { if (previous === undefined) delete process.env.DT_DIR; else process.env.DT_DIR = previous; await rm(dir, { recursive: true, force: true }); });
-	const base = join(dir, "features");
-	const repo = { key: "test/repo", featuresBase: base };
+	const base = join(dir, "features # draft");
+	const repo = { key: "test/repo", featuresBase: base, root: "/repo", branch: "ticket/demo-01" };
 	const feature = { slug: "demo", tier: "T2", type: "service" };
 	await mkdir(join(base, "demo", "tickets"), { recursive: true });
 	await writeFile(join(base, "demo", "feature.json"), JSON.stringify(feature));
-	const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "done", verification: "tests passed" } }, next: "Run acceptance checks" });
+	const progress = JSON.stringify({ gates: { G0: { state: "approved" }, G2: { state: "approved" } }, tickets: { "00": { status: "done", branch: "custom-completed-branch", verification: "tests passed" } }, next: "Run acceptance checks" });
 	await writeFile(join(base, "demo", "progress.json"), progress);
 	await writeFile(join(base, "demo", "tickets/00-skeleton.md"), '---\nid: "00"\ntitle: Skeleton\n---\n');
 	await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
@@ -199,14 +199,30 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	branch = [{ type: "custom", customType: "dt-project", data: { ...feature, key: repo.key, base } }];
 	await command.handler("other-slug", ctx);
 	assert.equal(messages.length, 0);
-	assert.ok(notices.at(-1)[0].includes("Usage: /dt-status"));
+	assert.match(notices.at(-1)[0], /No ticket saved for branch "other-slug"/);
 	await command.handler("", ctx);
 	assert.equal(messages.length, 1);
 	assert.equal(messages[0].customType, "dt-status");
-	assert.ok(messages[0].content.includes("1/1 accepted"));
-	assert.ok(messages[0].content.includes("Run acceptance checks"));
-	assert.ok(messages[0].content.includes("tests passed"));
+	assert.equal(messages[0].content, "| ID | Ticket | State | Saved verification | Notes |\n|---|---|---|---|---|");
+	assert.doesNotMatch(messages[0].content, /## Accepted|Skeleton|tests passed/);
+	await command.handler(" all ", ctx);
+	assert.equal(messages.length, 2);
+	assert.ok(messages[1].content.includes("tests passed"));
+	assert.ok(messages[1].content.includes("| 00 | Skeleton | done | tests passed |"));
+	assert.ok(messages[1].content.split("\n").every((line) => line.startsWith("|") && line.endsWith("|")));
+	await command.handler("all extra", ctx);
+	assert.equal(messages.length, 2);
+	assert.match(notices.at(-1)[0], /Usage: \/dt-status/);
 	assert.equal(await readFile(join(base, "demo", "progress.json"), "utf8"), progress);
+	await command.handler("lane", ctx);
+	assert.equal(messages.length, 2);
+	assert.match(notices.at(-1)[0], /No ticket found for the current lane/);
+	await command.handler("custom-completed-branch", ctx);
+	assert.equal(messages.at(-1).customType, "dt-ticket");
+	assert.equal(messages.at(-1).details.id, "00");
+	const byBranch = messages.at(-1).content;
+	await command.handler("00", ctx);
+	assert.equal(messages.at(-1).content, byBranch);
 	// The same command renders images after the full ticket/progress, even without dt-session loaded.
 	const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGQAAAABJRU5ErkJggg==", "base64");
 	await mkdir(join(base, "demo", "references/ui"), { recursive: true });
@@ -214,8 +230,14 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	await writeFile(screenshot, image);
 	const ticket = '---\nid: "01"\ntitle: Workspace\n---\n## Outcome\nShow a workspace.\n## UI reference\n![Workspace](../references/ui/workspace.png)\n![Missing](../references/ui/missing.png)\n## Done when\nExisting checks.\n';
 	await writeFile(join(base, "demo", "tickets/01-workspace.md"), ticket);
+	await command.handler("lane", ctx);
+	const laneMessage = messages.at(-1);
+	t.after(() => rm(fileURLToPath(laneMessage.details.screenshotExport.url), { recursive: true, force: true }));
 	await command.handler("1", ctx);
 	const message = messages.at(-1);
+	assert.equal(laneMessage.customType, "dt-ticket");
+	assert.equal(laneMessage.details.id, message.details.id);
+	assert.equal(laneMessage.content.split("Reference screenshots:")[0], message.content.split("Reference screenshots:")[0]);
 	assert.equal(message.customType, "dt-ticket");
 	assert.ok(message.content.startsWith(`Status: TODO\n\n${ticket}`));
 	assert.ok(message.content.includes("## Saved ticket progress"));
@@ -232,6 +254,18 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	const tui = await import(join(piPackage, "../pi-tui/dist/index.js"));
 	const { initTheme } = await import(join(piPackage, "dist/index.js"));
 	initTheme("dark", false);
+	const statusContent = "| ID | Ticket | State | Saved verification | Notes |\n|---|---|---|---|---|\n| 01 | 🟢 ready \\| title | 🟢 ready | not recorded | • 🟢 ready in notes |\n| 02 | Blocked | blocked by 01 | not recorded |  |";
+	const statusMessage = { customType: "dt-status", content: statusContent };
+	const colors = [];
+	const statusComponent = renderers.get("dt-status")(statusMessage, { outputPad: 1 }, { bg: (_, value) => value, fg: (color, value) => {
+		colors.push({ color, value });
+		return `\x1b[92m${value}\x1b[39m`;
+	} });
+	assert.deepEqual(colors, [{ color: "success", value: "🟢 ready" }]);
+	assert.equal(statusMessage.content, statusContent, "display styling must not change stored content");
+	assert.doesNotMatch(statusMessage.content, /\x1b/);
+	assert.ok(statusComponent.render(200).some((line) => line.includes("\x1b[92m🟢 ready")));
+	for (const width of [20, 80, 200]) assert.ok(statusComponent.render(width).every((line) => tui.visibleWidth(line) <= width));
 	const capabilities = tui.getCapabilities();
 	t.after(() => tui.setCapabilities(capabilities));
 	tui.setCapabilities({ ...capabilities, images: null, hyperlinks: true });
@@ -245,5 +279,20 @@ test("Pi runtime: /dt-status reads the selected folder without a prompt or event
 	for (const width of [20, 80, 160]) {
 		assert.ok(component.render(width).every(line => tui.visibleWidth(line) <= width));
 	}
+	// Boards link the existing spec after the table; ticket details do not.
+	const spec = join(base, "demo", "spec.md");
+	await writeFile(spec, "Project spec");
+	for (const args of ["", "all"]) {
+		await command.handler(args, ctx);
+		const [table, link] = messages.at(-1).content.split("\n\n");
+		assert.ok(table.split("\n").every(line => line.startsWith("|") && line.endsWith("|")));
+		assert.equal(link, `[Spec](<${pathToFileURL(spec).href}>)`);
+		assert.match(link, /features%20%23%20draft/);
+	}
+	await command.handler("00", ctx);
+	assert.doesNotMatch(messages.at(-1).content, /\[Spec\]\(</);
+	await rm(spec);
+	await command.handler("", ctx);
+	assert.doesNotMatch(messages.at(-1).content, /\[Spec\]\(</);
 	assert.equal(await readFile(join(base, "demo", "progress.json"), "utf8"), progress);
 });

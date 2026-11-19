@@ -20,7 +20,7 @@ test("Pi slice-plan reads the explicitly selected project without model, network
   for (const [id, dependencies] of [["00", ""], ["07", "00"], ["42", "00"], ["15", "07, 42"]]) {
     await writeFile(join(folder, "tickets", `${id}.md`), `---\nid: "${id}"\ntitle: Ticket ${id}\nblocked_by: [${dependencies}]\ntouches: [module${id}]\nunsafe_with: []\n---\n`);
   }
-  await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
+  await writeFile(join(dir, "dt.mjs"), `export { readFeatureStatus, pickReady } from ${JSON.stringify(new URL("../dt.mjs", import.meta.url).href)};\nexport const resolveRepo = () => (${JSON.stringify(repo)});\n`);
   const { createJiti } = createRequire(join(pkg, "package.json"))("jiti");
   const jiti = createJiti(join(pkg, "package.json"), { alias: {
     "@earendil-works/pi-coding-agent": join(pkg, "dist/index.js"),
@@ -44,6 +44,8 @@ test("Pi slice-plan reads the explicitly selected project without model, network
   entries = [{ type: "custom", customType: "dt-project", data: project }];
   await command.handler("demo", ctx);
   assert.match(notices.at(-1), /Usage: \/dt-slice-plan/);
+  assert.equal(command.getArgumentCompletions("a")[0].value, "all");
+  assert.equal(command.getArgumentCompletions("unknown"), null);
   const files = await readdir(folder);
   await command.handler("", ctx);
   assert.equal(messages.at(-1).content, "Slice 1: 07, 42\nSlice 2: 15");
@@ -51,6 +53,11 @@ test("Pi slice-plan reads the explicitly selected project without model, network
   const rendered = renderer(messages.at(-1), { outputPad: 1 }, { bg: (_color, text) => text }).render(80).join("\n");
   assert.match(rendered, /Slice 1: 07, 42/);
   assert.match(rendered, /Slice 2: 15/);
+  await command.handler(" all ", ctx);
+  assert.equal(messages.at(-1).content, "Slice 1 [closed]: 00\nSlice 2 [blocked]: 07, 42\nSlice 3 [blocked]: 15");
+  assert.deepEqual(messages.at(-1).details.statuses, ["closed", "blocked", "blocked"]);
+  const allRendered = renderer(messages.at(-1), { outputPad: 1 }, { bg: (_color, text) => text }).render(80).join("\n");
+  assert.match(allRendered, /Slice 1 \[closed\]: 00/);
   assert.equal(await readFile(join(folder, "progress.json"), "utf8"), progress);
   assert.deepEqual(await readdir(folder), files);
   entries.push({ type: "custom", customType: "dt-project", data: { ...project, key: "other/repo" } });
