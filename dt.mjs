@@ -336,6 +336,15 @@ export function deriveStatuses(tickets, prog) {
   return st;
 }
 
+function dependencyWarning(t, st) {
+  const blocked = t.blocked_by.filter((id) => st[id]?.status !== "done");
+  if (!blocked.length) return "";
+  const suggestion = blocked.length === 1 && st[blocked[0]]?.status === "review"
+    ? `; ticket ${blocked[0]} is in review — suggest stacking this PR by branching off its review branch; ask before changing the branch or PR base`
+    : "";
+  return `${t.id}: blocked by ${blocked.join(", ")}${suggestion}`;
+}
+
 export function ticketStartWarnings(tickets, prog, id, { resume = false } = {}) {
   const t = findTicket(tickets, id), st = deriveStatuses(tickets, prog), saved = prog.tickets[t.id];
   const warnings = [];
@@ -344,8 +353,8 @@ export function ticketStartWarnings(tickets, prog, id, { resume = false } = {}) 
   if (!resume) {
     if (prog.gates.G2?.state !== "approved") warnings.push("plan approval required (/dt-approve plan); overriding does not approve it");
     for (const blocker of [...(prog.blockers || []), ...(saved?.blockers || [])]) warnings.push(`saved blocker: ${blocker}`);
-    const blocked = t.blocked_by.filter((b) => st[b]?.status !== "done");
-    if (blocked.length) warnings.push(`${t.id}: blocked by ${blocked.join(", ")}`);
+    const dependency = dependencyWarning(t, st);
+    if (dependency) warnings.push(dependency);
     const peers = tickets.filter((p) => p.id !== t.id && ["in_progress", "review"].includes(st[p.id].status));
     for (const peer of peers) {
       const shared = t.touches.filter((m) => peer.touches.includes(m));
@@ -365,8 +374,8 @@ export function pickReady(tickets, st, wanted) {
   for (const t of candidates) {
     const s = st[t.id];
     if (s.status !== "todo") { reasons.push(`${t.id}: ${s.status}`); continue; }
-    const blocked = t.blocked_by.filter((b) => st[b]?.status !== "done");
-    if (blocked.length) { reasons.push(`${t.id}: blocked by ${blocked.join(", ")}`); continue; }
+    const dependency = dependencyWarning(t, st);
+    if (dependency) { reasons.push(dependency); continue; }
     const clash = t.touches.filter((m) => busy.has(m));
     if (clash.length) { reasons.push(`${t.id}: touches ${clash.join(", ")}, already in flight`); continue; }
     const unsafe = inFlight.filter((f) => t.unsafe_with.includes(f.id) || f.unsafe_with.includes(t.id));
