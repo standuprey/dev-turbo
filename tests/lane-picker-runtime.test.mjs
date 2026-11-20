@@ -30,13 +30,14 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   } });
   const session = await jiti.import(join(import.meta.dirname, "../extensions/dt-session/index.ts"), { default: true });
   const handlers = new Map(), commands = new Map(), messages = [], confirmations = [], entries = [{ type: "custom", customType: "dt-project", data: project }], calls = [], notices = [], selections = [];
-  let choice = "READY", confirmed = true;
+  let choice = "READY", confirmed = true, dependencyWarnings = [], onConfirm;
   const ctx = { mode: "print", hasUI: true, cwd: "/lane1", sessionManager: { getBranch: () => entries, getSessionId: () => "here" }, ui: {
     setStatus() {}, setFooter() {}, notify: (s) => notices.push(s),
     select: async (title, labels) => { selections.push({ title, labels }); return choice === "cancel" ? undefined : labels.find((label) => label.includes(choice)); },
     confirm: async (title, body) => {
       confirmations.push({ title, body });
       assert.ok(body.includes(messages.at(-1).content), "ticket summary must be displayed before confirmation");
+      if (onConfirm) await onConfirm();
       return confirmed;
     },
   } };
@@ -51,7 +52,7 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
       assert.equal(args[1], "next");
       assert.ok(args.includes("--check-only"), "confirmation must not perform workflow writes");
       const id = args[args.indexOf("--ticket") + 1];
-      const warnings = id === "01" ? ["ticket belongs to checkout /lane2", ...(!args.includes("--force") ? ["ticket claimed by other; takeover does not stop the previous agent"] : [])] : [];
+      const warnings = id === "01" ? ["ticket belongs to checkout /lane2", ...(!args.includes("--force") ? ["ticket claimed by other; takeover does not stop the previous agent"] : [])] : dependencyWarnings;
       return { code: 0, stdout: JSON.stringify({ warnings }) };
     },
   });
@@ -125,4 +126,41 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   assert.equal(confirmations.length, confirmationCount, "dt-status must never ask to start work");
   assert.equal(await readFile(join(featureDir, "progress.json"), "utf8"), progress);
   assert.equal(entries.length, 1);
+
+  await writeFile(join(featureDir, "tickets/02.md"), '---\nid: "02"\ntitle: Ticket 02\ntouches: [module03]\nblocked_by: ["03"]\nunsafe_with: []\n---\n');
+  dependencyWarnings = ["02: blocked by 03", "02: touches module03, already in flight in ticket 03"];
+  ctx.hasUI = true;
+  choice = "Wait for";
+  const beforeWait = confirmations.length;
+  assert.equal((await input("/dt-lane 02")).action, "handled");
+  assert.equal(confirmations.length, beforeWait, "waiting never asks to override start warnings");
+  assert.match(selections.at(-1).title, /blocked by 03.*in review/);
+  choice = "cancel";
+  assert.equal((await input("/dt-lane 02")).action, "handled");
+  choice = "Stack PR";
+  confirmed = false;
+  assert.equal((await input("/dt-lane 02")).action, "handled");
+  assert.equal(messages.filter((m) => m.customType === "dt-stack-decision").length, 0);
+  confirmed = true;
+  assert.equal((await input("/dt-lane 02")).text, "/dt-lane demo 02 override");
+  const consent = messages.at(-1);
+  assert.equal(consent.customType, "dt-stack-decision");
+  assert.match(consent.content, /User explicitly chose to stack PR.*ticket 02 on ticket 03/);
+  assert.equal(consent.details.branch, "custom-review-branch");
+  assert.match(confirmations.at(-1).body, /touches module03/);
+  const consentCount = messages.filter((m) => m.customType === "dt-stack-decision").length;
+  choice = "Start without";
+  assert.equal((await input("/dt-lane 02")).text, "/dt-lane demo 02 override");
+  assert.equal(messages.filter((m) => m.customType === "dt-stack-decision").length, consentCount, "start-warning consent never grants stack consent");
+  choice = "Stack PR";
+  onConfirm = async () => {
+    const changed = JSON.parse(progress);
+    changed.tickets["03"].status = "done";
+    await writeFile(join(featureDir, "progress.json"), JSON.stringify(changed));
+  };
+  assert.equal((await input("/dt-lane 02")).action, "handled");
+  assert.match(notices.at(-1), /Review dependency changed during confirmation/);
+  assert.equal(messages.filter((m) => m.customType === "dt-stack-decision").length, consentCount);
+  await writeFile(join(featureDir, "progress.json"), progress);
+  assert.equal(await readFile(join(featureDir, "progress.json"), "utf8"), progress);
 });

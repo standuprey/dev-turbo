@@ -27,7 +27,7 @@ cp "$KIT"/extensions/dt-help.ts "$EXTENSIONS"/dt-help.ts
 mkdir -p "$EXTENSIONS/dt-autocomplete"
 cp "$KIT"/extensions/dt-autocomplete/index.ts "$KIT"/extensions/dt-autocomplete/completion.mjs "$EXTENSIONS/dt-autocomplete"/
 mkdir -p "$EXTENSIONS/dt-session"
-cp "$KIT"/extensions/dt-session/index.ts "$KIT"/extensions/dt-session/branch.mjs "$KIT"/extensions/dt-session/state.mjs "$KIT"/extensions/dt-session/lane-picker.mjs "$KIT"/extensions/dt-session/ticket-preview.mjs "$KIT"/extensions/dt-session/ticket-screenshots.mjs "$KIT"/extensions/dt-session/footer.mjs "$KIT"/extensions/dt-session/gates.mjs "$KIT"/extensions/dt-session/approval-guard.mjs "$KIT"/extensions/dt-session/runtime.ts "$KIT"/extensions/dt-session/exec-json.mjs "$EXTENSIONS/dt-session"/
+cp "$KIT"/extensions/dt-session/index.ts "$KIT"/extensions/dt-session/branch.mjs "$KIT"/extensions/dt-session/state.mjs "$KIT"/extensions/dt-session/lane-picker.mjs "$KIT"/extensions/dt-session/dependency-stack.mjs "$KIT"/extensions/dt-session/ticket-preview.mjs "$KIT"/extensions/dt-session/ticket-screenshots.mjs "$KIT"/extensions/dt-session/footer.mjs "$KIT"/extensions/dt-session/gates.mjs "$KIT"/extensions/dt-session/approval-guard.mjs "$KIT"/extensions/dt-session/runtime.ts "$KIT"/extensions/dt-session/exec-json.mjs "$EXTENSIONS/dt-session"/
 mkdir -p "$EXTENSIONS/dt-status"
 cp "$KIT"/extensions/dt-status/index.ts "$KIT"/extensions/dt-status/status.mjs "$EXTENSIONS/dt-status"/
 mkdir -p "$EXTENSIONS/dt-slice-plan"

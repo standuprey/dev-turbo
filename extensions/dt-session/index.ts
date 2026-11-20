@@ -180,11 +180,21 @@ export default async function (pi: ExtensionAPI) {
 					if (!Array.isArray(warnings) || warnings.some((w: unknown) => typeof w !== "string")) throw new Error("Invalid ticket start warnings.");
 					return { snapshot, warnings };
 				});
+				const { chooseDependencyStack, dependencyStackCandidate, stackConsentMessage } = await load("./dependency-stack.mjs");
+				const stackChoice = await chooseDependencyStack({ ctx, project: selectedProject, snapshot, id });
+				if (stackChoice.action === "stop") return { action: "handled" };
 				const { confirmTicket } = await load("./ticket-preview.mjs");
 				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: option === "force", override: option === "override", warnings, approvedContent })) return { action: "handled" };
 				if (warnings.length || option === "override") text = `/dt-lane ${selectedProject.slug} ${id} override`;
 				refreshSelection(ctx);
 				if (ctx.sessionManager.getSessionId() !== session || project?.scopeId !== selectedProject.scopeId || project?.slug !== selectedProject.slug || project?.key !== selectedProject.key || project?.base !== selectedProject.base) throw new Error("Project changed during confirmation. Run /dt-lane again.");
+				if (stackChoice.action === "stack") {
+					const { snapshot: fresh } = await loadSnapshot(ctx, selectedProject);
+					if (JSON.stringify(dependencyStackCandidate(selectedProject, fresh, id)) !== JSON.stringify(stackChoice.candidate)) throw new Error("Review dependency changed during confirmation. Run /dt-lane again to choose its base.");
+					pi.sendMessage(stackConsentMessage(selectedProject.slug, stackChoice.candidate));
+				} else if (stackChoice.declined) {
+					pi.sendMessage({ customType: "dt-stack-declined", display: true, details: { slug: selectedProject.slug, ticket: id }, content: `No stack consent was given for this start of ${selectedProject.slug} ticket ${id}. Do not reuse a previous stack choice; accepting start warnings alone does not approve changing the branch or PR base.` });
+				}
 				laneProjects.add(selectedProject.slug);
 			}
 			// Staging tests claim the ticket too; release that claim if the session ends.
