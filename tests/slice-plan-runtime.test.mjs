@@ -54,10 +54,12 @@ test("Pi slice-plan reads the explicitly selected project without model, network
   assert.match(rendered, /Slice 1: 07, 42/);
   assert.match(rendered, /Slice 2: 15/);
   await command.handler(" all ", ctx);
-  assert.equal(messages.at(-1).content, "Slice 1 [closed]: 00\nSlice 2 [blocked]: 07, 42\nSlice 3 [blocked]: 15");
+  assert.equal(messages.at(-1).content, "Completion: 25%\nSlice 1 [closed] · 100%: 00\nSlice 2 [blocked] · 0%: 07, 42\nSlice 3 [blocked] · 0%: 15");
   assert.deepEqual(messages.at(-1).details.statuses, ["closed", "blocked", "blocked"]);
   const allRendered = renderer(messages.at(-1), { outputPad: 1 }, { bg: (_color, text) => text }).render(80).join("\n");
-  assert.match(allRendered, /Slice 1 \[closed\]: 00/);
+  assert.match(allRendered, /Slice 1 \[closed\] · 100%: 00/);
+  assert.equal(messages.at(-1).details.completion, 25);
+  assert.deepEqual(messages.at(-1).details.sliceCompletions, [100, 0, 0]);
   assert.equal(await readFile(join(folder, "progress.json"), "utf8"), progress);
   assert.deepEqual(await readdir(folder), files);
   entries.push({ type: "custom", customType: "dt-project", data: { ...project, key: "other/repo" } });

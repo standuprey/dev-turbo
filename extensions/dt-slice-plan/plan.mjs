@@ -51,15 +51,19 @@ export function slicePlan(snapshot, { all = false, pickReady } = {}) {
   };
   const statuses = slices.map((ids) => ids.every((id) => closed.has(id)) ? "closed"
     : ids.some(active) ? "in-flight" : "blocked");
-  return { slices, blocked, branches, statuses, all: true };
+  const completionOf = (ids) => ids.length ? Math.round(ids.reduce((total, id) => total + (closed.has(id) ? 100
+    : ["in_progress", "review"].includes(prog.tickets[id]?.status) ? 50 : 0), 0) / ids.length) : 0;
+  return { slices, blocked, branches, statuses, all: true,
+    completion: completionOf(tickets.map((t) => t.id)), sliceCompletions: slices.map(completionOf) };
 }
 
 export function renderSlicePlan(plan) {
   const label = (id) => !plan.all && plan.branches?.[id] ? `${id} (${plan.branches[id]})` : id;
-  const lines = plan.slices.map((ids, index) => `Slice ${index + 1}${plan.statuses ? ` [${plan.statuses[index]}]` : ""}: ${ids.map(label).join(", ")}`);
+  const lines = plan.slices.map((ids, index) => `Slice ${index + 1}${plan.statuses ? ` [${plan.statuses[index]}]` : ""}${plan.sliceCompletions ? ` · ${plan.sliceCompletions[index]}%` : ""}: ${ids.map(label).join(", ")}`);
   if (plan.blocked.length) {
     lines.push("Cannot schedule (missing dependencies or dependency cycle):",
       ...plan.blocked.map((t) => `Ticket ${label(t.id)}: blocked by ${t.blocked_by.join(", ")}`));
   }
-  return lines.join("\n") || (plan.all ? "No slices." : "No remaining slices.");
+  const output = lines.join("\n") || (plan.all ? "No slices." : "No remaining slices.");
+  return plan.all ? `Completion: ${plan.completion}%\n${output}` : output;
 }

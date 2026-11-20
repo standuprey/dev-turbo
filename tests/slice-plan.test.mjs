@@ -16,7 +16,7 @@ test("all reconstructs batches from the beginning and labels current closed, act
   const tickets = [ticket("00"), ticket("01", ["00"]), ticket("02", ["00"]), ticket("03", ["01", "02"]), ticket("04", ["03"])];
   const progress = { "00": { status: "done", branch: "ticket/demo-00" }, "01": { status: "in_progress" } };
   const result = allPlan(tickets, progress);
-  assert.equal(renderSlicePlan(result), "Slice 1 [closed]: 00\nSlice 2 [in-flight]: 01, 02\nSlice 3 [blocked]: 03\nSlice 4 [blocked]: 04");
+  assert.equal(renderSlicePlan(result), "Completion: 30%\nSlice 1 [closed] · 100%: 00\nSlice 2 [in-flight] · 25%: 01, 02\nSlice 3 [blocked] · 0%: 03\nSlice 4 [blocked] · 0%: 04");
   const finished = Object.fromEntries(tickets.map(({ id }) => [id, { status: "done" }]));
   assert.deepEqual(allPlan(tickets, finished).slices, result.slices);
   assert.deepEqual(allPlan(tickets, finished).statuses, ["closed", "closed", "closed", "closed"]);
@@ -38,7 +38,7 @@ test("all keeps review and reopened work active and uses ready guards without tr
 });
 
 test("all retains empty-project and invalid-dependency reporting without changing saved data", () => {
-  assert.equal(renderSlicePlan(allPlan([])), "No slices.");
+  assert.equal(renderSlicePlan(allPlan([])), "Completion: 0%\nNo slices.");
   const tickets = [ticket("00"), ticket("01", ["99"]), ticket("02", ["03"]), ticket("03", ["02"])];
   const snapshot = { tickets, prog: normalizeProgress({ gates: { G2: { state: "approved" } }, tickets: { "00": { status: "done" } } }) };
   const before = structuredClone(snapshot);
@@ -51,6 +51,21 @@ test("all retains empty-project and invalid-dependency reporting without changin
   assert.doesNotMatch(output, /ticket\/demo-/);
   assert.match(output, /Ticket 01: blocked by 99/);
   assert.match(renderSlicePlan(result), /Slice 1 \[closed\].*Cannot schedule.*Ticket 01: blocked by 99/s);
+});
+
+test("completion averages saved ticket progress, including unschedulable work, without counting readiness", () => {
+  const tickets = [ticket("00"), ticket("01"), ticket("02"), ticket("03", ["99"]), ticket("04")];
+  const progress = { "00": { status: "done" }, "01": { status: "in_progress" }, "02": { status: "review" }, "03": { status: "todo" }, "04": { status: "todo" } };
+  const result = allPlan(tickets, progress);
+  assert.equal(result.completion, 40);
+  assert.deepEqual(result.sliceCompletions, [50]);
+  assert.equal(result.blocked.length, 1);
+  assert.equal(allPlan([ticket("00")]).completion, 0, "ready is not started");
+  assert.equal(allPlan([ticket("00")], { "00": { status: "review", prs: [{ state: "merged" }] } }).completion, 100);
+  assert.equal(allPlan([ticket("00")], { "00": { status: "in_progress", reopened: true, prs: [{ state: "merged" }] } }).completion, 50);
+  assert.equal(allPlan([ticket("00"), ticket("01"), ticket("02")], { "00": { status: "in_progress" } }).completion, 17);
+  assert.equal(allPlan(tickets, Object.fromEntries(tickets.map(({ id }) => [id, { status: "done" }]))).completion, 100);
+  assert.equal(plan(tickets, { tickets: progress }).completion, undefined, "remaining-only output stays unchanged");
 });
 
 test("dependencies and asymmetric unsafe pairs split batches; shared modules do not", () => {

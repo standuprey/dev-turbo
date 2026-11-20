@@ -19,8 +19,8 @@ export default async function (pi: ExtensionAPI) {
     return box;
   });
   pi.registerCommand("dt-slice-plan", {
-    description: "Show remaining parallel ticket batches, or all batches with status (no model call)",
-    getArgumentCompletions: (prefix) => "all".startsWith(prefix) ? [{ value: "all", label: "all", description: "Show every slice with its current status" }] : null,
+    description: "Show remaining parallel ticket batches, or all batches with status and completion (no model call)",
+    getArgumentCompletions: (prefix) => "all".startsWith(prefix) ? [{ value: "all", label: "all", description: "Show every slice with its current status and completion" }] : null,
     handler: async (args, ctx) => {
       const option = args.trim();
       if (option && option !== "all") {
