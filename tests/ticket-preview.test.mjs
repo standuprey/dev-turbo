@@ -140,6 +140,21 @@ test("terminal start warnings and force takeovers use bold error color; RPC stay
   assert.match(dialog.body, /<bold><error>Starting anyway overrides/);
 });
 
+test("a stack choice confirms the ticket once, but changed scope and unrelated risks still stop work", async (t) => {
+  const { snapshot, file, content } = await fixture(t);
+  let calls = 0;
+  const args = { snapshot, id: "01", stackContent: content, pi: { sendMessage() {} }, project: { slug: "demo" }, ctx: {
+    hasUI: true, ui: { confirm: async () => { calls++; return false; } },
+  } };
+  assert.equal(await confirmTicket(args), true);
+  assert.equal(calls, 0);
+  assert.equal(await confirmTicket({ ...args, warnings: ["working tree is not clean"] }), false);
+  assert.equal(await confirmTicket({ ...args, force: true }), false);
+  assert.equal(calls, 2);
+  await writeFile(file, "Changed requirements");
+  await assert.rejects(confirmTicket(args), /changed during stack confirmation/);
+});
+
 test("a ticket edited while its confirmation is open must be reviewed again", async (t) => {
   const { snapshot, file } = await fixture(t);
   await assert.rejects(confirmTicket({ snapshot, id: "01", project: { slug: "demo" }, pi: { sendMessage() {} }, ctx: {

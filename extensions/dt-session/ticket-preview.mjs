@@ -31,14 +31,16 @@ export function summarizeTicket(ticket, branch = "") {
   return [`${ticket.id} · ${ticket.title}${savedBranch ? ` (${savedBranch})` : ""}`, summary, `Full ticket: /dt-status ${ticket.id}`].filter(Boolean).join("\n\n");
 }
 
-export async function confirmTicket({ pi, ctx, project, snapshot, id, force = false, override = false, warnings = [], approvedContent }) {
+export async function confirmTicket({ pi, ctx, project, snapshot, id, force = false, override = false, warnings = [], approvedContent, stackContent }) {
   const ticket = await readTicketPreview(snapshot, id);
   if (approvedContent !== undefined && ticket.content !== approvedContent) throw new Error("Ticket changed after plan approval. Run /dt-lane 00 to review it before starting.");
+  if (stackContent !== undefined && ticket.content !== stackContent) throw new Error("Ticket changed during stack confirmation. Run /dt-lane again to review it.");
   const branch = String(snapshot.prog?.tickets?.[ticket.id]?.branch || "").replace(/[\x00-\x1f\x7f]/g, " ").trim();
   const summary = summarizeTicket(ticket, branch);
   displayTicket(pi, project, { ...ticket, content: summary });
   // The initial single-ticket approval already confirmed this start, but not overrides.
   if (approvedContent !== undefined && !warnings.length && !force && !override) return true;
+  if (stackContent !== undefined && !warnings.length && !force) return true;
   const warningText = warnings.length ? `Start warnings:\n${warnings.map((w) => `- ${w}`).join("\n")}\n\n` : "";
   const overrideText = (override || warnings.length) ? "Starting anyway overrides ticket-start checks, may take over claims or share a checkout, and does not stop other agents. Local changes are not discarded; overlaps and shared checkouts can race or mix work.\n" : "";
   if (!ctx.hasUI) {

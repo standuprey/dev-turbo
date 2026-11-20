@@ -180,11 +180,11 @@ export default async function (pi: ExtensionAPI) {
 					if (!Array.isArray(warnings) || warnings.some((w: unknown) => typeof w !== "string")) throw new Error("Invalid ticket start warnings.");
 					return { snapshot, warnings };
 				});
-				const { chooseDependencyStack, dependencyStackCandidate, stackConsentMessage } = await load("./dependency-stack.mjs");
+				const { chooseDependencyStack, dependencyStackCandidate, remainingStackWarnings, stackConsentMessage } = await load("./dependency-stack.mjs");
 				const stackChoice = await chooseDependencyStack({ ctx, project: selectedProject, snapshot, id });
 				if (stackChoice.action === "stop") return { action: "handled" };
 				const { confirmTicket } = await load("./ticket-preview.mjs");
-				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: option === "force", override: option === "override", warnings, approvedContent })) return { action: "handled" };
+				if (!await confirmTicket({ pi, ctx, project: selectedProject, snapshot, id, force: option === "force", override: option === "override", warnings: stackChoice.action === "stack" ? remainingStackWarnings(warnings, stackChoice.candidate) : warnings, approvedContent, stackContent: stackChoice.action === "stack" ? stackChoice.ticketContent : undefined })) return { action: "handled" };
 				if (warnings.length || option === "override") text = `/dt-lane ${selectedProject.slug} ${id} override`;
 				refreshSelection(ctx);
 				if (ctx.sessionManager.getSessionId() !== session || project?.scopeId !== selectedProject.scopeId || project?.slug !== selectedProject.slug || project?.key !== selectedProject.key || project?.base !== selectedProject.base) throw new Error("Project changed during confirmation. Run /dt-lane again.");
