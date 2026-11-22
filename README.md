@@ -219,7 +219,7 @@ Tickets no longer save a `lane` field. Active ownership lives in `claim.checkout
 ./uninstall.sh               removes prompts, dt.mjs, installed docs, overlays, the extensions; keeps config.json and features/
 ./uninstall.sh --purge       also removes config.json and features/ (asks first)
 ```
-The extensions use the Node Pi package's existing jiti runtime so `/reload` also refreshes helper modules; no extra dependency install is needed.
+The extension helpers are plain ESM and need no npm packages: each `/reload` gets a fresh temp mirror of the helper graph so edits show up without Node's native ESM cache getting in the way.
 
 Then `/reload` in pi. `~/.pi/agent/dt/config.json` holds each repository's `checks` command; the grill asks for it once per repo if left empty. Needs `gh` logged in for issues and PRs.
 
