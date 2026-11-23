@@ -540,13 +540,19 @@ function collect(ctx, slug, { gh = true } = {}) {
     if (obs.prs.size || obs.issues.size) prog = updateProgress(ctx, slug, (fresh) => applyObserved(fresh, obs), { touch: false });
   }
   legacyQuickPlan(feature, prog);
-  const st = deriveStatuses(tickets, prog);
   const hasSpec = fs.existsSync(p.spec);
+  // A saved T2 spec and tickets can use the unified approval in place of a pending
+  // architecture gate. Only the user's approval writes a G2 decision to disk.
+  if (!prog.gates.G2 && prog.gates.G0?.state === "approved" && prog.gates.G1?.state === "pending" && hasSpec && tickets.length) {
+    prog.gates.G2 = { ...prog.gates.G1 };
+  }
+  const st = deriveStatuses(tickets, prog);
   return { p, feature, tickets, prog, st, refreshFailed, hasSpec, phase: phaseOf(prog, { tickets, st }) };
 }
 
 function nextOf(slug, d) {
   const suggested = suggestNext({ slug, ...d });
+  if (d.prog.gates.G2?.state === "pending") return { next: suggested, suggested };
   const inFlight = d.tickets.filter((t) => ["in_progress", "review"].includes(d.st[t.id].status));
   const ticketNext = inFlight.map((t) => {
     const n = d.prog.tickets[t.id]?.next;

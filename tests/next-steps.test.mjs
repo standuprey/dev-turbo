@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as logic from "../dt.mjs";
-import { nextCommands } from "../extensions/dt-session/gates.mjs";
+import { approvalPlan, nextCommands } from "../extensions/dt-session/gates.mjs";
 import { renderStatus } from "../extensions/dt-status/status.mjs";
 
 const project = { slug: "demo", tier: "T2", type: "service" };
@@ -58,6 +58,46 @@ test("CLI snapshots ignore stale generic lane steps when review is due without r
     assert.equal(snapshot.suggested, "/dt-review demo 42");
     assert.equal(await readFile(join(dir, "progress.json"), "utf8"), progress);
   }
+});
+
+test("resume and approval recognize a pending legacy T2 plan without rewriting progress", async (t) => {
+  const base = await mkdtemp(join(tmpdir(), "dt-next-legacy-plan-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const dir = join(base, project.slug);
+  const spec = join(dir, "spec.md"), ticket = join(dir, "tickets", "00.md"), file = join(dir, "progress.json");
+  await mkdir(join(dir, "tickets"), { recursive: true });
+  await writeFile(join(dir, "feature.json"), JSON.stringify(project));
+  await writeFile(spec, "Saved spec");
+  await writeFile(ticket, '---\nid: "00"\ntitle: Build\n---\n');
+  const gates = { G0: { state: "approved" }, G1: { state: "pending", note: "Saved architecture" } };
+  const progress = { gates, next: "/dt-lane demo" };
+  const read = () => logic.readFeatureStatus({ featuresBase: base }, project.slug);
+  const save = (overrides = {}) => writeFile(file, JSON.stringify({ ...progress, ...overrides }));
+  await save();
+  const snapshot = read(), v = { project, snapshot };
+  assert.equal(snapshot.phase, "planning: plan approval pending");
+  assert.equal(snapshot.next, "/dt-approve plan");
+  assert.equal(snapshot.suggested, snapshot.next);
+  assert.match(logic.renderBrief({ slug: project.slug, ...snapshot }), /\*\*Next:\*\* \/dt-approve plan/);
+  assert.deepEqual(nextCommands(v, logic), ["/dt-approve plan"]);
+  assert.equal(approvalPlan(v, "plan", []).id, 2);
+  assert.equal(await readFile(file, "utf8"), JSON.stringify(progress));
+
+  for (const state of ["pending", "approved", "changes"]) {
+    const G2 = { state, note: "Explicit plan gate" };
+    await save({ gates: { ...gates, G2 } });
+    const current = read();
+    assert.deepEqual(current.prog.gates.G2, G2);
+    if (state === "pending") assert.equal(current.next, "/dt-approve plan");
+  }
+  await save({ gates: { ...gates, G1: { state: "approved" } } });
+  assert.equal(read().prog.gates.G2, undefined, "architecture approval is not plan approval");
+  await save();
+  await rm(spec);
+  assert.equal(read().prog.gates.G2, undefined);
+  await writeFile(spec, "Saved spec");
+  await rm(ticket);
+  assert.equal(read().prog.gates.G2, undefined);
 });
 
 test("completion has no next command and suggests no review", () => {
