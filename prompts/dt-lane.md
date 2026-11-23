@@ -1,8 +1,13 @@
 ---
 description: Run one ticket in this lane (its worktree, or the current checkout for T0) - claim, branch, scenarios red, TDD green, verify, PR
-argument-hint: "[ticket id [force|override]]"
+argument-hint: "[ticket id [force|override]] [-- context]"
 ---
 Work ticket $2 of feature "$1". Start option: $3.
+
+## Context for this start
+${@:4}
+
+Use this context together with saved progress to decide where to resume; an explicit current request takes precedence over a stale saved `next`. If I say the ticket is deployed and ask for staging tests, follow `/dt-staging-test` for this ticket after setup and any unresolved requirements, rather than restarting implementation. A deployment report is not proof that tests passed, requirement confirmation or permission to skip claims, start warnings or approval rules.
 
 - No numeric ticket ID: STOP and ask me to run `/dt-lane`; never pick a ticket yourself.
 - The extension confirms the ticket with me before this prompt (for a new T0 project, `/dt-approve plan` counts). If it did not and $3 is not "override", show the ticket ID, title and one-line outcome, then STOP until I confirm.
@@ -11,7 +16,7 @@ Work ticket $2 of feature "$1". Start option: $3.
 ## Setup
 1. Unless $3 is "override": if the ticket is already accepted, say so and stop; if all its saved PRs are merged, hand over to `/dt-check-merged` instead of rebuilding.
 2. Before touching ticket code, run `node ~/.pi/agent/dt/dt.mjs next $1 --ticket $2 --owner <session-owner>`, adding `--force` only if $3 is exactly "force" and `--override` only if it is exactly "override". Then:
-   - **resume**: check the Requirements interview below, then continue from the saved `next`; do not redo finished steps.
+   - **resume**: check the Requirements interview below, then continue from the saved `next` unless the current context gives a newer direction; do not redo finished steps.
    - **open pi in <path>**: tell me the path and STOP.
    - a refusal: report the warnings and continue only if I explicitly override. Invalid data or failed Git/API operations need repair, not override.
    T0 features are one ticket (`00`) built in the current checkout. T0 stays on the current branch: never create or switch branches, commit, push or open a PR unless I explicitly ask.
@@ -27,7 +32,7 @@ The normal `dt.mjs next` creates new branches from main and `dt.mjs pr` targets 
 
 ## Requirements interview
 After Setup and before scenarios, implementation or spike experiments, run a short interview with me to settle the ticket's requirements. Ticket-start confirmation selects the ticket; it does not replace this interview, and "override" does not skip it.
-1. Read the ticket's saved requirement confirmation and progress first. Skip the interview only when it was already completed, the confirmed requirements still match the current ticket and spec, and there are no unresolved questions; then resume the saved `next`. A resume or existing code alone is not proof of confirmation.
+1. Read the ticket's saved requirement confirmation and progress first. Skip the interview only when it was already completed, the confirmed requirements still match the current ticket and spec, and there are no unresolved questions; then resume the current context or saved `next`. A resume or existing code alone is not proof of confirmation.
 2. Briefly summarize the Outcome, Scope, Out of scope and Done when (or the investigation question and effort limit). Ask only unresolved questions that affect the ticket's behavior, constraints or acceptance and neither the code nor the plan answers, in small numbered batches with your recommendation and names I recognize. Follow settled decisions instead of asking them again; if the code contradicts one, describe the mismatch. Keep the claim and wait for my answers; do not start ticket work while requirements remain unsettled.
 3. Once questions are settled, state the agreed requirements and ask me to confirm before continuing, even if the first interview had no questions. On a later run with changed requirements or new questions, revisit only the affected points and confirm those changes.
 4. After my confirmation, update editable planning files with the settled decisions and add or update a short **Requirement confirmation** section in the ticket recording what I confirmed, including scope and acceptance. Save the next concrete step through `dt.mjs progress`, preserving existing verification, todos and blockers; clear only blockers resolved by this interview. This record must survive later progress saves so another session can skip an unchanged, completed interview. Never mark the interview complete before I confirm.

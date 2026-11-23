@@ -54,6 +54,19 @@ test("selected project supplies slug, task type and default ticket", () => {
 	assert.equal(resolveCommand("/dt-status", project), null); // Handled directly by its extension.
 });
 
+test("lane context keeps ticket options separate and supports the picker", () => {
+	const context = 'Already deployed to staging; test "brand checkout" now.\nDo not redeploy -- use the sandbox.';
+	assert.equal(resolveCommand(`/dt-lane 01 -- ${context}`, project), `/dt-lane checkout 01 -- ${context}`);
+	assert.equal(resolveCommand(`/dt-lane -- ${context}`, project), `/dt-lane checkout -- ${context}`);
+	assert.equal(resolveCommand(`/dt-lane checkout next -- ${context}`, project), `/dt-lane checkout -- ${context}`);
+	for (const option of ["force", "override"]) {
+		assert.equal(resolveCommand(`/dt-lane 01 ${option} -- ${context}`, project), `/dt-lane checkout 01 ${option} -- ${context}`);
+	}
+	assert.equal(resolveCommand("/dt-lane 01 -- force override", project), "/dt-lane checkout 01 -- force override");
+	assert.equal(resolveCommand("/dt-lane 01 --", project), "/dt-lane checkout 01");
+	assert.throws(() => resolveCommand("/dt-lane other next -- resume", project), /Usage/);
+});
+
 test("staging tests take the selected slug and an optional ticket ID", () => {
 	assert.equal(resolveCommand("/dt-staging-test", project), "/dt-staging-test checkout");
 	assert.equal(resolveCommand("/dt-staging-test 7", project), "/dt-staging-test checkout 7");

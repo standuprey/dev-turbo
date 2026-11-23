@@ -25,8 +25,12 @@ export function resolveCommand(text, project) {
 	const strip = (word) => { if (args === word) args = ""; else if (args.startsWith(word + " ")) args = args.slice(word.length + 1).trim(); };
 	strip(project.slug);
 	if (command === "dt-lane") {
-		if (args && args !== "next" && !/^\d{1,2}(?: (?:force|override))?$/.test(args)) throw new Error("Usage: /dt-lane [ticket ID [force|override]]. Switch projects with /dt-resume.");
+		const separator = args.match(/(?:^|\s)--(?:\s|$)/);
+		const context = separator ? args.slice(separator.index + separator[0].length).trim() : "";
+		if (separator) args = args.slice(0, separator.index).trim();
+		if (args && args !== "next" && !/^\d{1,2}(?: (?:force|override))?$/.test(args)) throw new Error("Usage: /dt-lane [ticket ID [force|override]] [-- context]. Switch projects with /dt-resume.");
 		if (args === "next") args = ""; // Legacy alias now opens the picker too.
+		if (context) args += `${args ? " " : ""}-- ${context}`;
 	}
 	if (command === "dt-review" && /\s/.test(args) && !/^\S+\s+autofix$/.test(args)) {
 		throw new Error("Usage: /dt-review [ticket ID | branch] [autofix]. Switch projects with /dt-resume.");

@@ -123,6 +123,8 @@ By default, done and merged tickets stay closed and extra work becomes a new tic
 
 ### Ticket picker and lane ownership
 
+Add context with `/dt-lane 01 -- Already deployed to staging; test on staging now`, or `/dt-lane -- Already deployed to staging; test on staging now` to choose the ticket first. Context follows an optional `force` or `override`, for example `/dt-lane 01 force -- Resume staging tests`. It guides where to resume without skipping ticket confirmation, claims or required approvals; deployment alone does not count as passed tests.
+
 After setup, `/dt-lane` briefly reviews the ticket’s outcome, scope and acceptance with you, asks unresolved questions and waits for requirement confirmation before tests, implementation or spike experiments. Ticket-start confirmation and start overrides do not replace this interview. The agreed requirements are saved in the ticket; a later run skips the interview only when that confirmation still matches the current requirements and no questions remain. Changed requirements or new questions reopen only the affected points.
 
 Run **`/dt-lane`** to choose a ticket. Resume/status recommend this command when ready work fits alongside existing tickets. The picker reads saved local state; it does not refresh GitHub or change progress. Ticket labels, summaries and confirmation titles include the saved branch in parentheses when present, for example `01 · Update schema (ov_777_update_schema)`; no branch name is guessed. Tickets without warnings appear first, and accepted tickets are omitted from the picker; an explicit ID with override can reopen completed work.

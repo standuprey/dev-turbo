@@ -19,6 +19,10 @@ Necessary tests, shared fixtures and test-only build wiring may be updated outsi
 ## Standalone wording
 Code, comments, test names, commit messages and PR titles/bodies must stand on their own, and so does shipped documentation. Never reference the dev-turbo plan, spec, tickets, slices or gates. Describe current behavior and technical reasons. Workflow references belong only in dev-turbo planning artifacts, saved progress and command/gate handovers; issue links and concrete PR sequencing are fine. Write `/** Reads stored v1 brand configurations. */`, not a comment promising v2 decoding later.
 
+## Coding style
+- Try to make files less than 150 lines
+- if react code, create one file per component
+
 ## Writing descriptions
 Applies to issue and PR descriptions and replies to the user. Write for someone who knows the product, not the code.
 - One short line per change, starting with what the user sees or can do: "Add brand workspace nav (left sidebar) + empty state for each screen".

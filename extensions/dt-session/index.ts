@@ -152,6 +152,14 @@ export default async function (pi: ExtensionAPI) {
 		}
 		try {
 			let text = resolveCommand(event.text, project);
+			let laneContext = "";
+			if (text?.startsWith("/dt-lane ")) {
+				const separator = text.match(/\s--(?:\s|$)/);
+				if (separator) {
+					laneContext = text.slice(separator.index! + separator[0].length).trim();
+					text = text.slice(0, separator.index);
+				}
+			}
 			if (project && text === `/dt-lane ${project.slug}`) {
 				if (!ctx.hasUI) {
 					ctx.ui.notify("/dt-lane needs a ticket picker. In non-interactive mode use /dt-lane <id>.", "warning");
@@ -196,6 +204,8 @@ export default async function (pi: ExtensionAPI) {
 					pi.sendMessage({ customType: "dt-stack-declined", display: true, details: { slug: selectedProject.slug, ticket: id }, content: `No stack consent was given for this start of ${selectedProject.slug} ticket ${id}. Do not reuse a previous stack choice; accepting start warnings alone does not approve changing the branch or PR base.` });
 				}
 				laneProjects.add(selectedProject.slug);
+				// Keep the option in position 3 so context cannot grant force or override.
+				if (laneContext) text += `${text.split(" ").length === 3 ? " none" : ""} ${laneContext}`;
 			}
 			// Staging tests claim the ticket too; release that claim if the session ends.
 			if (project && text?.startsWith(`/dt-staging-test ${project.slug}`)) laneProjects.add(project.slug);

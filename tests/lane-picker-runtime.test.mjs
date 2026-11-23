@@ -127,6 +127,32 @@ test("Pi input: lane displays and confirms before work; dt-status <id> is read-o
   assert.equal(await readFile(join(featureDir, "progress.json"), "utf8"), progress);
   assert.equal(entries.length, 1);
 
+  ctx.hasUI = true;
+  choice = "READY";
+  const context = 'Already deployed to staging; test "brand checkout" now.';
+  const { expandPromptTemplate } = await import(join(piPackage, "dist/core/prompt-templates.js"));
+  const content = await readFile(new URL("../prompts/dt-lane.md", import.meta.url), "utf8");
+  const resumed = await input(`/dt-lane 02 -- ${context}`);
+  assert.equal(resumed.text, `/dt-lane demo 02 none ${context}`);
+  const expanded = expandPromptTemplate(resumed.text, [{ name: "dt-lane", content }]);
+  assert.match(expanded, /Start option: none\./);
+  assert.match(expanded, /Already deployed to staging; test brand checkout now\./);
+  assert.match(expanded, /follow `\/dt-staging-test`/);
+  assert.equal((await input(`/dt-lane -- ${context}`)).text, `/dt-lane demo 02 none ${context}`);
+  assert.equal((await input(`/dt-lane 01 force -- ${context}`)).text, `/dt-lane demo 01 override ${context}`, "warning consent must retain context");
+  assert.equal((await input("/dt-lane 02 -- force override")).text, "/dt-lane demo 02 none force override");
+  assert.ok(!calls.at(-1).includes("--force") && !calls.at(-1).includes("--override"), "context cannot grant takeover consent");
+  confirmed = false;
+  assert.equal((await input(`/dt-lane 02 -- ${context}`)).action, "handled");
+  confirmed = true;
+  choice = "cancel";
+  assert.equal((await input(`/dt-lane -- ${context}`)).action, "handled");
+  ctx.hasUI = false;
+  assert.equal((await input(`/dt-lane 02 -- ${context}`)).action, "handled");
+  assert.equal((await input(`/dt-lane 02 override -- ${context}`)).text, `/dt-lane demo 02 override ${context}`);
+  assert.equal((await input("/dt-lane 02 override")).text, "/dt-lane demo 02 override", "context must not leak into later starts");
+  assert.equal(await readFile(join(featureDir, "progress.json"), "utf8"), progress);
+
   await writeFile(join(featureDir, "tickets/02.md"), '---\nid: "02"\ntitle: Ticket 02\ntouches: [module03]\nblocked_by: ["03"]\nunsafe_with: []\n---\n');
   dependencyWarnings = ["02: blocked by 03", "02: touches module03, already in flight in ticket 03"];
   ctx.hasUI = true;
